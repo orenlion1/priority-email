@@ -10,6 +10,11 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from telemetry import Telemetry
+
 
 GMAIL_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me"
@@ -172,21 +177,48 @@ def format_provider_error_message(provider_name, error):
     return "\n".join(lines)
 
 
-def notify_provider_error(values, provider_name, error):
+def notify_provider_error(values, provider_name, error, telemetry=None):
     if not bool_config(values, "EMAIL_POLL_SLACK_ERROR_NOTIFICATIONS_ENABLED", True):
-        print(f"{provider_name}: slack_error_notification=disabled")
+        if telemetry:
+            telemetry.log(
+                "info",
+                "slack_error_notification_skipped",
+                provider=provider_name,
+                reason="disabled",
+            )
+        else:
+            print(f"{provider_name}: slack_error_notification=disabled")
         return False
     token = values.get("SLACK_BOT_TOKEN", "")
     channel = values.get("SLACK_CHANNEL_ID", "")
     if not token or not channel:
-        print(f"{provider_name}: slack_error_notification=skipped missing_slack_config")
+        if telemetry:
+            telemetry.log(
+                "warning",
+                "slack_error_notification_skipped",
+                provider=provider_name,
+                reason="missing_slack_config",
+            )
+        else:
+            print(f"{provider_name}: slack_error_notification=skipped missing_slack_config")
         return False
     try:
         post_slack_message(token, channel, format_provider_error_message(provider_name, error))
     except Exception as exc:
-        print(f"{provider_name}: slack_error_notification=failed {truncate(exc, 240)}")
+        if telemetry:
+            telemetry.log(
+                "error",
+                "slack_error_notification_failed",
+                provider=provider_name,
+                reason=truncate(exc, 240),
+            )
+        else:
+            print(f"{provider_name}: slack_error_notification=failed {truncate(exc, 240)}")
         return False
-    print(f"{provider_name}: slack_error_notification=posted")
+    if telemetry:
+        telemetry.log("info", "slack_error_notification_posted", provider=provider_name)
+    else:
+        print(f"{provider_name}: slack_error_notification=posted")
     return True
 
 
@@ -575,27 +607,30 @@ def enabled_providers(values, requested):
     return [item.strip() for item in configured.split(",") if item.strip()]
 
 
-def print_result(result, *, verbose=False):
+def log_result(result, telemetry, *, verbose=False):
     mode = "initialization" if result.initialized else "incremental"
-    print(f"{result.provider}: {mode} poll")
-    print(f"{result.provider}: checkpoint_before={result.checkpoint_before or 'none'}")
-    print(f"{result.provider}: checkpoint_after={result.checkpoint_after or 'none'}")
-    print(f"{result.provider}: messages={len(result.messages)}")
+    telemetry.log(
+        "info",
+        "poll_result",
+        provider=result.provider,
+        mode=mode,
+        checkpoint_before=result.checkpoint_before or "none",
+        checkpoint_after=result.checkpoint_after or "none",
+        messages=len(result.messages),
+    )
     if not verbose:
         return
     for message in result.messages:
-        print(
-            json.dumps(
-                {
-                    "id": message["id"],
-                    "thread_id": message["thread_id"],
-                    "internal_time": message["internal_time"],
-                    "from": message["from"],
-                    "subject": message["subject"],
-                    "date": message["date"],
-                },
-                sort_keys=True,
-            )
+        telemetry.log(
+            "debug",
+            "poll_message_metadata",
+            provider=result.provider,
+            id=message["id"],
+            thread_id=message["thread_id"],
+            internal_time=message["internal_time"],
+            from_header=message["from"],
+            subject=message["subject"],
+            date=message["date"],
         )
 
 
@@ -622,6 +657,7 @@ def main():
     args = parser.parse_args()
 
     values = load_env(args.env_file)
+    telemetry = Telemetry(values)
     state_file = args.state_file or Path(
         values.get("EMAIL_POLL_STATE_FILE", ".state/email-poller-state.json")
     )
@@ -635,17 +671,79 @@ def main():
         if args.reset_provider_state:
             provider_state[provider_name] = {}
         current = provider_state.setdefault(provider_name, {})
+        span = telemetry.start_span("email_provider_poll", provider=provider_name)
+        started = dt.datetime.now(dt.UTC)
         try:
             result = poller.poll(values, current)
         except EmailProviderRequestError as exc:
             record_provider_error(current, exc)
-            print(f"{provider_name}: provider_request_error={exc}")
-            notify_provider_error(values, provider_name, exc)
+            telemetry.log(
+                "error",
+                "provider_request_error",
+                provider=provider_name,
+                **exc.summary(),
+            )
+            posted = notify_provider_error(values, provider_name, exc, telemetry=telemetry)
+            telemetry.count(
+                "priority_email_provider_request_errors_total",
+                provider=provider_name,
+                status=exc.status or "unknown",
+                reason=exc.reason or "unknown",
+            )
+            telemetry.count(
+                "priority_email_slack_error_notifications_total",
+                provider=provider_name,
+                result="posted" if posted else "skipped",
+            )
+            duration_ms = (
+                dt.datetime.now(dt.UTC) - started
+            ).total_seconds() * 1000
+            telemetry.gauge(
+                "priority_email_poll_cycle_duration_ms",
+                duration_ms,
+                provider=provider_name,
+                status="error",
+            )
+            telemetry.end_span(
+                span,
+                status="error",
+                message=str(exc),
+                error_type=type(exc).__name__,
+                error_reason=exc.reason or "unknown",
+            )
             continue
-        print_result(result, verbose=args.verbose)
+        duration_ms = (dt.datetime.now(dt.UTC) - started).total_seconds() * 1000
+        mode = "initialization" if result.initialized else "incremental"
+        telemetry.count(
+            "priority_email_poll_cycles_total",
+            provider=provider_name,
+            status="ok",
+            mode=mode,
+        )
+        telemetry.count(
+            "priority_email_messages_checked_total",
+            len(result.messages),
+            provider=provider_name,
+            mode=mode,
+        )
+        telemetry.gauge(
+            "priority_email_poll_cycle_duration_ms",
+            duration_ms,
+            provider=provider_name,
+            status="ok",
+        )
+        telemetry.end_span(
+            span,
+            status="ok",
+            mode=mode,
+            messages=len(result.messages),
+            initialized=result.initialized,
+        )
+        log_result(result, telemetry, verbose=args.verbose)
 
     save_state(state_file, state)
-    print(f"state_file={state_file}")
+    telemetry.log("info", "state_saved", state_file=str(state_file))
+    telemetry.flush_metrics()
 
 
 if __name__ == "__main__":

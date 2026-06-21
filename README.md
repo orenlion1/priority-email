@@ -11,6 +11,8 @@ Priority Email monitors connected mail accounts for important sender matches, th
 - AWS deployment is live in the reference AWS account through the `example-platform` AWS CLI profile.
 - The live Kubernetes worker runs in the dedicated `priority-email` namespace.
 - Observability is standardized on Grafana Labs tooling and services.
+- The worker emits structured JSON logs with `service=priority-email-service`, OTLP traces, and OTLP metrics.
+- A namespace-local Grafana Alloy collector receives Priority Email OTLP signals and collects Priority Email pod logs.
 
 ## Local Commands
 
@@ -28,6 +30,8 @@ python3 scripts/poll-email.py --provider gmail --verbose
 ```
 
 Provider request failures are posted to Slack by default when `SLACK_BOT_TOKEN` and `SLACK_CHANNEL_ID` are configured. Set `EMAIL_POLL_SLACK_ERROR_NOTIFICATIONS_ENABLED=false` for local troubleshooting without Slack error posts.
+
+For local OTEL testing, run an OTLP HTTP collector on `localhost:4318` or set `OTEL_EXPORTER_OTLP_ENDPOINT` to another collector. Telemetry export is fail-open: email polling continues if the collector is unavailable.
 
 ## CI Commands
 
@@ -58,6 +62,12 @@ scripts/aws/deploy-to-aws.sh
 ```
 
 The deploy script syncs `.env` to AWS Secrets Manager, builds and pushes the Docker image to ECR, mounts real local filter files as a Kubernetes ConfigMap, and applies the dedicated `priority-email` Kubernetes workload.
+
+Grafana Cloud ingest values must be present in gitignored `.env` before deployment. The deploy script copies only these Grafana keys into the narrow Kubernetes `priority-email-observability-secrets` object for Alloy:
+
+- `GRAFANA_CLOUD_OTLP_ENDPOINT`
+- `GRAFANA_CLOUD_INSTANCE_ID`
+- `GRAFANA_CLOUD_API_KEY`
 
 For functional runtime changes, push the source commit to GitHub first, wait for CI to pass, then run the AWS deploy script from that same commit. Documentation-only changes do not require an AWS rollout.
 

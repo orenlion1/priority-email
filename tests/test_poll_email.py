@@ -1,4 +1,6 @@
+import contextlib
 import importlib.util
+import io
 import json
 from pathlib import Path
 import sys
@@ -61,6 +63,32 @@ class FailingPoller(poll_email.BaseProviderPoller):
         )
 
 
+class SuccessfulPoller(poll_email.BaseProviderPoller):
+    name = "successful"
+
+    def poll(self, values, provider_state):
+        provider_state["checkpoint_epoch"] = 123
+        provider_state["last_polled_at"] = poll_email.utc_now_iso()
+        return poll_email.PollResult(
+            "successful",
+            True,
+            None,
+            123,
+            [message("new-message", 123)],
+        )
+
+
+class FakeHttpResponse:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def read(self):
+        return b"{}"
+
+
 class FakeYahooConnection:
     def __init__(self, uids, metadata):
         self.uids = uids
@@ -113,6 +141,76 @@ class FakeYahooPoller(poll_email.YahooPoller):
 
 
 class GmailPollerTests(unittest.TestCase):
+    def test_main_emits_structured_logs_with_priority_email_service(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_file = Path(tmpdir) / ".env"
+            state_file = Path(tmpdir) / "state.json"
+            env_file.write_text(f"EMAIL_POLL_STATE_FILE={state_file}\n")
+            stdout = io.StringIO()
+
+            original = dict(poll_email.PROVIDERS)
+            poll_email.PROVIDERS["successful"] = SuccessfulPoller()
+            try:
+                with mock.patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "poll-email.py",
+                        "--env-file",
+                        str(env_file),
+                        "--provider",
+                        "successful",
+                    ],
+                ), contextlib.redirect_stdout(stdout):
+                    poll_email.main()
+            finally:
+                poll_email.PROVIDERS.clear()
+                poll_email.PROVIDERS.update(original)
+
+            records = [
+                json.loads(line)
+                for line in stdout.getvalue().splitlines()
+                if line.strip().startswith("{")
+            ]
+            self.assertTrue(records)
+            self.assertTrue(
+                all(record["service"] == "priority-email-service" for record in records)
+            )
+            self.assertIn("poll_result", {record["event"] for record in records})
+
+    def test_otel_export_posts_trace_and_metric_payloads(self):
+        telemetry = poll_email.Telemetry(
+            {
+                "OTEL_EXPORTER_OTLP_ENDPOINT": "http://alloy.example.test:4318",
+                "OTEL_EXPORTER_OTLP_TIMEOUT_SECONDS": "1",
+            }
+        )
+        posted = []
+
+        def fake_urlopen(req, timeout):
+            posted.append({"url": req.full_url, "body": json.loads(req.data.decode())})
+            return FakeHttpResponse()
+
+        with mock.patch("urllib.request.urlopen", fake_urlopen):
+            span = telemetry.start_span("email_provider_poll", provider="gmail")
+            telemetry.end_span(span, status="ok")
+            telemetry.count("priority_email_poll_cycles_total", provider="gmail", status="ok")
+            telemetry.flush_metrics()
+
+        self.assertEqual(
+            [
+                "http://alloy.example.test:4318/v1/traces",
+                "http://alloy.example.test:4318/v1/metrics",
+            ],
+            [item["url"] for item in posted],
+        )
+        self.assertEqual(
+            "priority-email-service",
+            posted[0]["body"]["resourceSpans"][0]["resource"]["attributes"][0]["value"][
+                "stringValue"
+            ],
+        )
+
     def test_initial_poll_inspects_only_first_page_with_configured_limit(self):
         poller = FakeGmailPoller(
             pages={

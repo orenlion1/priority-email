@@ -116,6 +116,12 @@ digraph priority_email_evolution_flow_dark {
     color="#cbd5e1"
   ];
 
+  observability [
+    label="Grafana observability\nStructured service logs\nOTLP metrics and traces\nNamespace-local Alloy\nGrafana Cloud export",
+    fillcolor="#581c87",
+    color="#d8b4fe"
+  ];
+
   next [
     label="Next implementation\nDurable DynamoDB checkpoints\nFilter matching pipeline\nSlack summaries from matches\nYahoo/iCloud pollers",
     fillcolor="#7f1d1d",
@@ -135,5 +141,6 @@ digraph priority_email_evolution_flow_dark {
   ci -> provider_errors;
   provider_errors -> delivery_flow;
   delivery_flow -> public_ready;
-  public_ready -> next;
+  public_ready -> observability;
+  observability -> next;
 }

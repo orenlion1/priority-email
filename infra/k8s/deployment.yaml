@@ -22,7 +22,7 @@ spec:
         app.kubernetes.io/name: priority-email-service
         app.kubernetes.io/part-of: priority-email
       annotations:
-        prometheus.io/scrape: "false"
+        observability.grafana.com/collect-logs: "true"
     spec:
       serviceAccountName: priority-email-service
       securityContext:
@@ -44,6 +44,14 @@ spec:
               value: /tmp/email-poller-state.json
             - name: EMAIL_POLL_INTERVAL_SECONDS
               value: "600"
+            - name: OTEL_SERVICE_NAME
+              value: priority-email-service
+            - name: OTEL_SERVICE_NAMESPACE
+              value: priority-email
+            - name: OTEL_DEPLOYMENT_ENVIRONMENT
+              value: production
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://alloy.priority-email.svc.cluster.local:4318
           volumeMounts:
             - name: tmp
               mountPath: /tmp

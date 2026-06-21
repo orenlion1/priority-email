@@ -7,6 +7,7 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 K8S_DIR = ROOT / "infra" / "k8s"
 REQUIRED = {
+    "alloy.yaml": ("ServiceAccount", "priority-email-alloy"),
     "namespace.yaml": ("Namespace", "priority-email"),
     "serviceaccount.yaml": ("ServiceAccount", "priority-email-service"),
     "deployment.yaml": ("Deployment", "priority-email-service"),
@@ -44,10 +45,35 @@ def main():
         "runAsNonRoot: true",
         "name: priority-email-filters",
         "name: priority-email-secrets",
+        "OTEL_SERVICE_NAME",
+        "priority-email-service",
+        "OTEL_EXPORTER_OTLP_ENDPOINT",
+        "http://alloy.priority-email.svc.cluster.local:4318",
     ]
     for fragment in required_fragments:
         if fragment not in deployment:
             failures.append(f"deployment.yaml: missing {fragment}")
+    alloy = (K8S_DIR / "alloy.yaml").read_text()
+    alloy_fragments = [
+        "kind: ConfigMap",
+        "name: priority-email-alloy-config",
+        "otelcol.receiver.otlp",
+        "loki.source.kubernetes",
+        "otelcol.exporter.otlphttp",
+        "GRAFANA_CLOUD_OTLP_ENDPOINT",
+        "GRAFANA_CLOUD_INSTANCE_ID",
+        "GRAFANA_CLOUD_API_KEY",
+        "name: priority-email-observability-secrets",
+        "runAsNonRoot: true",
+        "readOnlyRootFilesystem: true",
+    ]
+    for fragment in alloy_fragments:
+        if fragment not in alloy:
+            failures.append(f"alloy.yaml: missing {fragment}")
+    network_policy = (K8S_DIR / "network-policy.yaml").read_text()
+    for fragment in ["allow-alloy-otlp-ingress", "port: 4317", "port: 4318"]:
+        if fragment not in network_policy:
+            failures.append(f"network-policy.yaml: missing {fragment}")
     if failures:
         print("Kubernetes static check failed:")
         print("\n".join(failures))

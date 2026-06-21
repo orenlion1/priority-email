@@ -324,18 +324,26 @@ Because the worker must call Gmail, Yahoo Mail, iCloud Mail, Slack, push provide
 
 Follow the reference platform observability convention:
 
-- add Prometheus scrape annotations or ServiceMonitor metadata
-- emit service logs with `service=priority-email-service`
+- run a dedicated Grafana Alloy collector in the `priority-email` namespace for Priority Email signals
+- collect pod logs from the `priority-email` namespace through Alloy and export them to Grafana Cloud
+- emit structured service logs with `service=priority-email-service`
 - emit low-cardinality metrics:
-  - emails checked
-  - matched emails
-  - notifications sent
-  - Slack post failures
-  - push notification failures
+  - provider poll cycles
+  - messages checked
   - provider polling failures
-  - duplicate messages skipped
-- emit traces for provider polling and notification sends if the runtime supports OTEL
-- send OTEL traces to the in-cluster Alloy endpoint already used by reference services
+  - Slack error notification outcomes
+  - poll cycle duration
+- emit traces for provider polling attempts
+- send OTLP metrics and traces to `http://alloy.priority-email.svc.cluster.local:4318`
+- keep telemetry export fail-open so collector issues do not block email polling
+
+Current implementation:
+
+- `scripts/telemetry.py` emits structured JSON logs, OTLP metrics, and OTLP traces without adding runtime package dependencies.
+- `infra/k8s/alloy.yaml` deploys Grafana Alloy with OTLP HTTP/gRPC receivers, Kubernetes pod log collection for the `priority-email` namespace, and Grafana Cloud OTLP export.
+- `infra/k8s/deployment.yaml` configures the worker with `OTEL_SERVICE_NAME=priority-email-service` and the namespace-local Alloy endpoint.
+- `infra/k8s/network-policy.yaml` allows in-namespace OTLP ingress to Alloy while preserving default-deny ingress.
+- `.env` must provide `GRAFANA_CLOUD_OTLP_ENDPOINT`, `GRAFANA_CLOUD_INSTANCE_ID`, and `GRAFANA_CLOUD_API_KEY`; the deploy script copies only those keys into the narrow `priority-email-observability-secrets` Kubernetes secret for Alloy.
 
 ## Phase 9: Deployment Flow
 

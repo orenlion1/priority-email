@@ -25,6 +25,9 @@ Priority Email helps users avoid missing important messages that are buried acro
 - Yahoo Mail and Apple iCloud Mail pollers are planned and currently stubbed.
 - Slack app `Priority Email` is installed in workspace `example-platform` with `chat:write`.
 - Slack posting validation has succeeded through `scripts/test-slack-message.py`.
+- Priority Email emits structured JSON logs with `service=priority-email-service`.
+- Priority Email emits OTLP metrics and traces for provider poll cycles.
+- Priority Email Kubernetes manifests include a dedicated namespace-local Grafana Alloy collector that receives OTLP and collects pod logs from the `priority-email` namespace.
 - Local runtime secrets live in gitignored `.env`; `.env.example` is the committed-safe template.
 - AWS access uses the local AWS CLI profile `example-platform` for account `<aws-account-id>`; static AWS access keys must not be copied into this repo.
 - Real filter values live in gitignored `filters/*.txt`; only `filters/*.txt.template` files are safe to push to GitHub.
@@ -222,6 +225,18 @@ The user must be able to configure:
 - The system must log failed notification attempts for troubleshooting.
 - The system should avoid duplicate notifications for the same message.
 - The system should continue monitoring other connected accounts if one provider has an error.
+
+## Observability Requirements
+
+- Observability must use Grafana Labs tooling and services.
+- Runtime logs must be structured JSON and include `service=priority-email-service`.
+- Kubernetes pod logs for Priority Email must be collected by Grafana Alloy.
+- Metrics and traces must be emitted through OpenTelemetry Protocol.
+- The worker must emit low-cardinality metrics for provider poll cycles, provider request failures, Slack error notification outcomes, messages checked, and poll cycle duration.
+- Traces must include one provider polling span per provider poll attempt.
+- Telemetry export must be fail-open so a collector or Grafana Cloud outage does not stop email polling.
+- Grafana Cloud ingest credentials must be stored only in local `.env`, AWS Secrets Manager, and the namespace-local observability Kubernetes secret; they must not be committed.
+- Priority Email observability components must remain isolated in the `priority-email` Kubernetes namespace unless a future shared collector design is explicitly documented.
 
 ## Acceptance Criteria
 

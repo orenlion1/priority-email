@@ -245,6 +245,19 @@ Key evidence:
 - `tests/test_poll_email.py`: covers Slack error posting, redaction, saved error state, and the disable switch.
 - `REQUIREMENTS.md`: documents provider request error notification behavior and secret-safety requirements.
 
+### June 21, 2026: Add Priority Email Grafana Observability
+
+Priority Email moved from documented observability intent to concrete Grafana Alloy collection and OpenTelemetry emission.
+
+Key evidence:
+
+- `scripts/telemetry.py`: emits structured JSON logs with `service=priority-email-service`, OTLP metrics, and OTLP traces without adding third-party runtime dependencies.
+- `scripts/poll-email.py`: wraps each provider poll cycle in a trace span and records poll cycles, messages checked, provider request failures, Slack error notification outcomes, and poll duration.
+- `infra/k8s/alloy.yaml`: deploys a dedicated Grafana Alloy collector in the `priority-email` namespace, receives OTLP on ports `4317` and `4318`, collects Priority Email pod logs, and exports logs, metrics, and traces to Grafana Cloud using a narrow observability secret.
+- `infra/k8s/deployment.yaml`: sends worker OTLP telemetry to the namespace-local Alloy service at `http://alloy.priority-email.svc.cluster.local:4318`.
+- `infra/k8s/network-policy.yaml`: preserves default-deny ingress while allowing in-namespace OTLP traffic to Alloy.
+- `.env.example` and `DEPLOYMENT_PLAN.md`: document the required Grafana Cloud ingest settings without exposing credentials.
+
 ### June 21, 2026: Standardize Functional Change Delivery
 
 Priority Email standardized the delivery flow for functional runtime changes: push the source commit to GitHub, wait for CI to pass, deploy the same commit to AWS, and verify the live EKS image tag.

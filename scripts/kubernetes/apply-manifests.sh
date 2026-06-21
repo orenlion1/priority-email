@@ -24,11 +24,34 @@ if [[ ! -f "$env_file" ]]; then
   exit 1
 fi
 
+env_value() {
+  local key="$1"
+  local value
+  value="$(grep -E "^${key}=" "$env_file" | tail -n 1 | cut -d= -f2- || true)"
+  value="${value%\"}"
+  value="${value#\"}"
+  printf '%s' "$value"
+}
+
+for key in GRAFANA_CLOUD_OTLP_ENDPOINT GRAFANA_CLOUD_INSTANCE_ID GRAFANA_CLOUD_API_KEY; do
+  if [[ -z "$(env_value "$key")" ]]; then
+    echo "Missing required .env value for observability: $key" >&2
+    exit 1
+  fi
+done
+
 kubectl apply -f "$manifest_dir/namespace.yaml"
 kubectl apply -f "$manifest_dir/serviceaccount.yaml"
 
 kubectl -n "$namespace" create secret generic priority-email-secrets \
   --from-env-file="$env_file" \
+  --dry-run=client \
+  -o yaml | kubectl apply -f -
+
+kubectl -n "$namespace" create secret generic priority-email-observability-secrets \
+  --from-literal=GRAFANA_CLOUD_OTLP_ENDPOINT="$(env_value GRAFANA_CLOUD_OTLP_ENDPOINT)" \
+  --from-literal=GRAFANA_CLOUD_INSTANCE_ID="$(env_value GRAFANA_CLOUD_INSTANCE_ID)" \
+  --from-literal=GRAFANA_CLOUD_API_KEY="$(env_value GRAFANA_CLOUD_API_KEY)" \
   --dry-run=client \
   -o yaml | kubectl apply -f -
 
@@ -40,6 +63,7 @@ kubectl -n "$namespace" create configmap priority-email-filters \
   -o yaml | kubectl apply -f -
 
 kubectl apply -f "$manifest_dir/network-policy.yaml"
+kubectl apply -f "$manifest_dir/alloy.yaml"
 kubectl apply -f "$manifest_dir/deployment.yaml"
 kubectl apply -f "$manifest_dir/poddisruptionbudget.yaml"
 
