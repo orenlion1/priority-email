@@ -1,0 +1,34 @@
+# Local secrets and runtime configuration
+.env
+.env.*
+!.env.example
+client_secret_877694096009-ctfgo7aer8sg64mhu300206jq51i5441.apps.googleusercontent.com
+client_secret_877694096009-ctfgo7aer8sg64mhu300206jq51i5441.apps.googleusercontent.com*
+client_secret_*.apps.googleusercontent.com*
+
+# Local email filter values. Commit only *.template files.
+filters/*.txt
+!filters/*.txt.template
+
+# Local Kubernetes/AWS secret material
+*secrets*.yaml
+*secret*.yaml
+*.tfvars
+*.tfvars.json
+
+# Terraform state and local working files
+.state/
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.*
+crash.log
+crash.*.log
+
+# Python/node/editor/runtime noise
+__pycache__/
+*.py[cod]
+node_modules/
+.DS_Store
+.idea/
+.vscode/
