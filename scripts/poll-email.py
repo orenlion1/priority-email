@@ -2,6 +2,7 @@
 import argparse
 import datetime as dt
 import email.utils
+import imaplib
 import json
 import os
 import urllib.error
@@ -10,8 +11,10 @@ import urllib.request
 from pathlib import Path
 
 
-TOKEN_URL = "https://oauth2.googleapis.com/token"
+GMAIL_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me"
+YAHOO_TOKEN_URL = "https://api.login.yahoo.com/oauth2/get_token"
+YAHOO_USERINFO_URL = "https://api.login.yahoo.com/openid/v1/userinfo"
 METADATA_HEADERS = ["From", "Subject", "Date"]
 SLACK_POST_MESSAGE_URL = "https://slack.com/api/chat.postMessage"
 SENSITIVE_QUERY_KEYS = {"access_token", "client_secret", "code", "key", "password", "token"}
@@ -229,6 +232,18 @@ def parse_email_date(value):
     return parsed.astimezone(dt.UTC).replace(microsecond=0).isoformat()
 
 
+def parse_imap_internaldate(value):
+    if isinstance(value, bytes):
+        value = value.decode(errors="replace")
+    parsed = email.utils.parsedate_to_datetime(value) if value else None
+    if parsed is None:
+        return 0, ""
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=dt.UTC)
+    parsed = parsed.astimezone(dt.UTC).replace(microsecond=0)
+    return int(parsed.timestamp()), parsed.isoformat()
+
+
 class PollResult:
     def __init__(self, provider, initialized, checkpoint_before, checkpoint_after, messages):
         self.provider = provider
@@ -258,7 +273,7 @@ class GmailPoller(BaseProviderPoller):
             }
         ).encode()
         token = request_json(
-            TOKEN_URL,
+            GMAIL_TOKEN_URL,
             method="POST",
             data=body,
             headers={"Content-Type": "application/x-www-form-urlencoded"},
@@ -266,7 +281,7 @@ class GmailPoller(BaseProviderPoller):
         if not token.get("access_token"):
             raise EmailProviderRequestError(
                 method="POST",
-                url=TOKEN_URL,
+                url=GMAIL_TOKEN_URL,
                 reason="missing_access_token",
                 details="Token response did not include access_token.",
             )
@@ -357,6 +372,178 @@ class GmailPoller(BaseProviderPoller):
         return PollResult("gmail", initialized, checkpoint, max_epoch, messages)
 
 
+class YahooPoller(BaseProviderPoller):
+    name = "yahoo"
+
+    def access_token(self, values, provider_state):
+        refresh_token = provider_state.get("refresh_token") or require(
+            values, "YAHOO_REFRESH_TOKENS"
+        )
+        body = urllib.parse.urlencode(
+            {
+                "client_id": require(values, "YAHOO_CLIENT_ID"),
+                "client_secret": require(values, "YAHOO_CLIENT_SECRET"),
+                "redirect_uri": require(values, "YAHOO_REDIRECT_URI"),
+                "refresh_token": refresh_token,
+                "grant_type": "refresh_token",
+            }
+        ).encode()
+        token = request_json(
+            YAHOO_TOKEN_URL,
+            method="POST",
+            data=body,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        if not token.get("access_token"):
+            raise EmailProviderRequestError(
+                method="POST",
+                url=YAHOO_TOKEN_URL,
+                reason="missing_access_token",
+                details="Token response did not include access_token.",
+            )
+        if token.get("refresh_token"):
+            provider_state["refresh_token"] = token["refresh_token"]
+        return token["access_token"]
+
+    def mailbox_email(self, values, access_token=""):
+        configured = values.get("YAHOO_EMAIL") or values.get("YAHOO_EMAIL_ADDRESS", "")
+        if configured:
+            return configured
+        if not access_token:
+            raise SystemExit("Missing required .env value: YAHOO_EMAIL")
+        userinfo = request_json(
+            YAHOO_USERINFO_URL,
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        email_address = userinfo.get("email", "")
+        if not email_address:
+            raise EmailProviderRequestError(
+                method="GET",
+                url=YAHOO_USERINFO_URL,
+                reason="missing_email",
+                details="Yahoo userinfo response did not include email.",
+            )
+        return email_address
+
+    def connect(self, values, email_address, credential, auth_method):
+        host = values.get("YAHOO_IMAP_HOST", "imap.mail.yahoo.com")
+        port = int_config(values, "YAHOO_IMAP_PORT", 993)
+        try:
+            conn = imaplib.IMAP4_SSL(host, port)
+            if auth_method == "password":
+                conn.login(email_address, credential)
+            else:
+                auth = f"user={email_address}\x01auth=Bearer {credential}\x01\x01"
+                conn.authenticate("XOAUTH2", lambda _: auth.encode())
+            conn.select("INBOX", readonly=True)
+            return conn
+        except (imaplib.IMAP4.error, OSError, TimeoutError) as exc:
+            raise EmailProviderRequestError(
+                method="IMAP",
+                url=f"imaps://{host}:{port}/INBOX",
+                reason=type(exc).__name__,
+                details=truncate(exc, 500),
+            ) from exc
+
+    def search_uids(self, conn, checkpoint_uid):
+        criterion = "ALL" if checkpoint_uid is None else f"UID {int(checkpoint_uid) + 1}:*"
+        status, data = conn.uid("SEARCH", None, criterion)
+        if status != "OK":
+            raise EmailProviderRequestError(
+                method="IMAP",
+                url="imaps://imap.mail.yahoo.com/INBOX",
+                reason="uid_search_failed",
+                details=truncate(data, 500),
+            )
+        raw = data[0] if data else b""
+        return [int(item) for item in raw.split() if item]
+
+    def fetch_metadata(self, conn, uid):
+        query = "(INTERNALDATE BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)])"
+        status, data = conn.uid("FETCH", str(uid), query)
+        if status != "OK":
+            raise EmailProviderRequestError(
+                method="IMAP",
+                url="imaps://imap.mail.yahoo.com/INBOX",
+                reason="uid_fetch_failed",
+                details=truncate(data, 500),
+            )
+        metadata = {}
+        internal_epoch = 0
+        internal_time = ""
+        for item in data:
+            if not isinstance(item, tuple):
+                continue
+            prefix, payload = item
+            if isinstance(prefix, bytes):
+                marker = b'INTERNALDATE "'
+                start = prefix.find(marker)
+                if start >= 0:
+                    start += len(marker)
+                    end = prefix.find(b'"', start)
+                    internal_epoch, internal_time = parse_imap_internaldate(prefix[start:end])
+            message = email.message_from_bytes(payload)
+            metadata = {
+                "id": str(uid),
+                "thread_id": "",
+                "internal_epoch": internal_epoch,
+                "internal_time": internal_time,
+                "from": message.get("From", ""),
+                "subject": message.get("Subject", ""),
+                "date": parse_email_date(message.get("Date", "")),
+            }
+        if not metadata:
+            raise EmailProviderRequestError(
+                method="IMAP",
+                url="imaps://imap.mail.yahoo.com/INBOX",
+                reason="missing_message_metadata",
+                details=f"No metadata returned for UID {uid}.",
+            )
+        return metadata
+
+    def poll(self, values, provider_state):
+        clear_provider_error(provider_state)
+        checkpoint_uid = provider_state.get("checkpoint_uid")
+        initialized = checkpoint_uid is None
+        max_results = int_config(
+            values,
+            "EMAIL_POLL_INITIAL_MAX_MESSAGES" if initialized else "EMAIL_POLL_MAX_MESSAGES",
+            20 if initialized else 50,
+        )
+        app_password = values.get("YAHOO_APP_PASSWORD", "")
+        if app_password:
+            email_address = self.mailbox_email(values)
+            conn = self.connect(values, email_address, app_password, "password")
+        else:
+            token = self.access_token(values, provider_state)
+            email_address = self.mailbox_email(values, token)
+            conn = self.connect(values, email_address, token, "xoauth2")
+        try:
+            uids = self.search_uids(conn, checkpoint_uid)
+            selected_uids = uids[-max_results:] if initialized else uids
+            messages = [self.fetch_metadata(conn, uid) for uid in selected_uids]
+        finally:
+            try:
+                conn.logout()
+            except Exception:
+                pass
+
+        checkpoint_before = checkpoint_uid
+        max_uid = max([checkpoint_uid or 0, *uids], default=checkpoint_uid or 0)
+        max_epoch = max([provider_state.get("checkpoint_epoch", 0), *[m["internal_epoch"] for m in messages]], default=0)
+        provider_state["checkpoint_uid"] = max_uid
+        provider_state["checkpoint_epoch"] = max_epoch
+        provider_state["checkpoint_time"] = (
+            dt.datetime.fromtimestamp(max_epoch, dt.UTC).replace(microsecond=0).isoformat()
+            if max_epoch
+            else ""
+        )
+        provider_state["last_polled_at"] = utc_now_iso()
+        provider_state["initialized"] = True
+        provider_state["mailbox"] = email_address
+        return PollResult("yahoo", initialized, checkpoint_before, max_uid, messages)
+
+
 class StubProviderPoller(BaseProviderPoller):
     def __init__(self, name):
         self.name = name
@@ -376,7 +563,7 @@ class StubProviderPoller(BaseProviderPoller):
 
 PROVIDERS = {
     "gmail": GmailPoller(),
-    "yahoo": StubProviderPoller("yahoo"),
+    "yahoo": YahooPoller(),
     "icloud": StubProviderPoller("icloud"),
 }
 

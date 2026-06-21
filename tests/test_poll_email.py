@@ -61,6 +61,57 @@ class FailingPoller(poll_email.BaseProviderPoller):
         )
 
 
+class FakeYahooConnection:
+    def __init__(self, uids, metadata):
+        self.uids = uids
+        self.metadata = metadata
+        self.search_calls = []
+        self.fetch_calls = []
+        self.logged_out = False
+
+    def uid(self, command, *args):
+        if command == "SEARCH":
+            criterion = args[-1]
+            self.search_calls.append(criterion)
+            if criterion == "ALL":
+                selected = self.uids
+            else:
+                start = int(criterion.split()[1].split(":", 1)[0])
+                selected = [uid for uid in self.uids if uid >= start]
+            return "OK", [" ".join(str(uid) for uid in selected).encode()]
+        if command == "FETCH":
+            uid = int(args[0])
+            self.fetch_calls.append(uid)
+            item = self.metadata[uid]
+            payload = (
+                f"From: {item['from']}\r\n"
+                f"Subject: {item['subject']}\r\n"
+                f"Date: {item['date']}\r\n"
+                "\r\n"
+            ).encode()
+            prefix = f'1 (UID {uid} INTERNALDATE "{item["internaldate"]}"'.encode()
+            return "OK", [(prefix, payload)]
+        raise AssertionError(f"unexpected IMAP command: {command}")
+
+    def logout(self):
+        self.logged_out = True
+
+
+class FakeYahooPoller(poll_email.YahooPoller):
+    def __init__(self, conn):
+        self.conn = conn
+
+    def access_token(self, values, provider_state):
+        provider_state["refresh_token"] = "rotated-refresh-token"
+        return "fake-yahoo-token"
+
+    def mailbox_email(self, values, access_token=""):
+        return "user@yahoo.example"
+
+    def connect(self, values, email_address, credential, auth_method):
+        return self.conn
+
+
 class GmailPollerTests(unittest.TestCase):
     def test_initial_poll_inspects_only_first_page_with_configured_limit(self):
         poller = FakeGmailPoller(
@@ -195,6 +246,97 @@ class GmailPollerTests(unittest.TestCase):
             )
         self.assertFalse(posted)
         post.assert_not_called()
+
+
+class YahooPollerTests(unittest.TestCase):
+    def test_initial_poll_inspects_latest_configured_uids(self):
+        conn = FakeYahooConnection(
+            [101, 102, 103],
+            {
+                101: {
+                    "from": "old@example.com",
+                    "subject": "old",
+                    "date": "Mon, 01 Jun 2026 10:00:00 +0000",
+                    "internaldate": "01-Jun-2026 10:00:00 +0000",
+                },
+                102: {
+                    "from": "middle@example.com",
+                    "subject": "middle",
+                    "date": "Mon, 01 Jun 2026 11:00:00 +0000",
+                    "internaldate": "01-Jun-2026 11:00:00 +0000",
+                },
+                103: {
+                    "from": "new@example.com",
+                    "subject": "new",
+                    "date": "Mon, 01 Jun 2026 12:00:00 +0000",
+                    "internaldate": "01-Jun-2026 12:00:00 +0000",
+                },
+            },
+        )
+        state = {}
+
+        result = FakeYahooPoller(conn).poll({"EMAIL_POLL_INITIAL_MAX_MESSAGES": "2"}, state)
+
+        self.assertTrue(result.initialized)
+        self.assertEqual([102, 103], conn.fetch_calls)
+        self.assertEqual("ALL", conn.search_calls[0])
+        self.assertEqual(103, state["checkpoint_uid"])
+        self.assertEqual("user@yahoo.example", state["mailbox"])
+        self.assertEqual(["102", "103"], [item["id"] for item in result.messages])
+        self.assertTrue(conn.logged_out)
+
+    def test_app_password_path_does_not_request_oauth_token(self):
+        conn = FakeYahooConnection(
+            [201],
+            {
+                201: {
+                    "from": "new@example.com",
+                    "subject": "new",
+                    "date": "Mon, 01 Jun 2026 12:00:00 +0000",
+                    "internaldate": "01-Jun-2026 12:00:00 +0000",
+                },
+            },
+        )
+        poller = FakeYahooPoller(conn)
+        with mock.patch.object(poller, "access_token") as access_token:
+            result = poller.poll(
+                {
+                    "YAHOO_EMAIL": "user@yahoo.example",
+                    "YAHOO_APP_PASSWORD": "test-app-password",
+                },
+                {},
+            )
+
+        access_token.assert_not_called()
+        self.assertEqual(["201"], [item["id"] for item in result.messages])
+
+    def test_incremental_poll_uses_uid_checkpoint(self):
+        conn = FakeYahooConnection(
+            [101, 102, 103, 104],
+            {
+                103: {
+                    "from": "new@example.com",
+                    "subject": "new",
+                    "date": "Mon, 01 Jun 2026 12:00:00 +0000",
+                    "internaldate": "01-Jun-2026 12:00:00 +0000",
+                },
+                104: {
+                    "from": "newer@example.com",
+                    "subject": "newer",
+                    "date": "Mon, 01 Jun 2026 13:00:00 +0000",
+                    "internaldate": "01-Jun-2026 13:00:00 +0000",
+                },
+            },
+        )
+        state = {"checkpoint_uid": 102, "checkpoint_epoch": 100}
+
+        result = FakeYahooPoller(conn).poll({"EMAIL_POLL_MAX_MESSAGES": "1"}, state)
+
+        self.assertFalse(result.initialized)
+        self.assertEqual("UID 103:*", conn.search_calls[0])
+        self.assertEqual([103, 104], conn.fetch_calls)
+        self.assertEqual(104, state["checkpoint_uid"])
+        self.assertEqual(["103", "104"], [item["id"] for item in result.messages])
 
 
 if __name__ == "__main__":
