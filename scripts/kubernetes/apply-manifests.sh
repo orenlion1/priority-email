@@ -43,4 +43,6 @@ kubectl apply -f "$manifest_dir/network-policy.yaml"
 kubectl apply -f "$manifest_dir/deployment.yaml"
 kubectl apply -f "$manifest_dir/poddisruptionbudget.yaml"
 
-kubectl -n "$namespace" rollout status deployment/priority-email-service --timeout=180s
+if [[ "${SKIP_INITIAL_ROLLOUT_STATUS:-false}" != "true" ]]; then
+  kubectl -n "$namespace" rollout status deployment/priority-email-service --timeout=180s
+fi
