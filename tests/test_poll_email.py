@@ -186,7 +186,51 @@ class GmailPollerTests(unittest.TestCase):
             ]
             self.assertEqual(1, len(poll_log_records))
             self.assertEqual("provider_poll", poll_log_records[0]["event"])
+            self.assertEqual("INFO", poll_log_records[0]["level"])
             self.assertEqual("successful", poll_log_records[0]["provider"])
+            self.assertEqual("ok", poll_log_records[0]["status"])
+
+    def test_error_log_level_suppresses_success_stdout_but_keeps_poll_log(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_file = Path(tmpdir) / ".env"
+            state_file = Path(tmpdir) / "state.json"
+            poll_log_file = Path(tmpdir) / "poll.log"
+            env_file.write_text(
+                "\n".join(
+                    [
+                        "EMAIL_LOG_LEVEL=ERROR",
+                        f"EMAIL_POLL_STATE_FILE={state_file}",
+                        f"EMAIL_POLL_LOG_FILE={poll_log_file}",
+                    ]
+                )
+                + "\n"
+            )
+            stdout = io.StringIO()
+
+            original = dict(poll_email.PROVIDERS)
+            poll_email.PROVIDERS["successful"] = SuccessfulPoller()
+            try:
+                with mock.patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "poll-email.py",
+                        "--env-file",
+                        str(env_file),
+                        "--provider",
+                        "successful",
+                    ],
+                ), contextlib.redirect_stdout(stdout):
+                    poll_email.main()
+            finally:
+                poll_email.PROVIDERS.clear()
+                poll_email.PROVIDERS.update(original)
+
+            self.assertEqual("", stdout.getvalue())
+            poll_log_records = [
+                json.loads(line) for line in poll_log_file.read_text().splitlines()
+            ]
+            self.assertEqual("INFO", poll_log_records[0]["level"])
             self.assertEqual("ok", poll_log_records[0]["status"])
 
     def test_otel_export_posts_trace_and_metric_payloads(self):
@@ -299,6 +343,7 @@ class GmailPollerTests(unittest.TestCase):
                 + "\n"
             )
             posted = []
+            stdout = io.StringIO()
 
             def fake_post(token, channel, text):
                 posted.append({"token": token, "channel": channel, "text": text})
@@ -317,7 +362,9 @@ class GmailPollerTests(unittest.TestCase):
                         "--provider",
                         "failing",
                     ],
-                ), mock.patch.object(poll_email, "post_slack_message", fake_post):
+                ), mock.patch.object(
+                    poll_email, "post_slack_message", fake_post
+                ), contextlib.redirect_stdout(stdout):
                     poll_email.main()
             finally:
                 poll_email.PROVIDERS.clear()
@@ -342,10 +389,26 @@ class GmailPollerTests(unittest.TestCase):
             ]
             self.assertEqual(1, len(poll_log_records))
             self.assertEqual("provider_poll", poll_log_records[0]["event"])
+            self.assertEqual("ERROR", poll_log_records[0]["level"])
             self.assertEqual("failing", poll_log_records[0]["provider"])
             self.assertEqual("error", poll_log_records[0]["status"])
             self.assertIn("access_token=%5Bredacted%5D", poll_log_records[0]["error"]["url"])
             self.assertNotIn("secret-token", json.dumps(poll_log_records[0]))
+            stdout_records = [
+                json.loads(line)
+                for line in stdout.getvalue().splitlines()
+                if line.strip().startswith("{")
+            ]
+            error_records = [
+                record for record in stdout_records if record["event"] == "provider_poll_failed"
+            ]
+            self.assertEqual(1, len(error_records))
+            self.assertEqual("error", error_records[0]["level"])
+            self.assertEqual("failing", error_records[0]["provider"])
+            self.assertIn("duration_ms", error_records[0])
+            self.assertIn("provider_state", error_records[0])
+            self.assertTrue(error_records[0]["slack_error_notification_posted"])
+            self.assertNotIn("secret-token", json.dumps(error_records[0]))
 
     def test_slack_error_notifications_can_be_disabled(self):
         error = poll_email.EmailProviderRequestError(

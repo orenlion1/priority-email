@@ -11,6 +11,18 @@ DEFAULT_SERVICE_NAME = "priority-email-service"
 DEFAULT_SERVICE_NAMESPACE = "priority-email"
 INSTRUMENTATION_SCOPE = "priority-email.poller"
 AGGREGATION_TEMPORALITY_DELTA = 2
+LEVELS = {
+    "debug": 10,
+    "info": 20,
+    "warning": 30,
+    "error": 40,
+    "critical": 50,
+}
+
+
+def normalize_level(value, default="info"):
+    normalized = str(value or default).strip().lower()
+    return normalized if normalized in LEVELS else default
 
 
 def now_iso():
@@ -66,6 +78,9 @@ class Telemetry:
             "OTEL_DEPLOYMENT_ENVIRONMENT", merged.get("DEPLOYMENT_ENVIRONMENT", "production")
         )
         self.service_version = merged.get("OTEL_SERVICE_VERSION", merged.get("GIT_COMMIT_SHA", ""))
+        self.log_level = normalize_level(
+            merged.get("EMAIL_LOG_LEVEL", merged.get("LOG_LEVEL", "info"))
+        )
         self.endpoint = merged.get("OTEL_EXPORTER_OTLP_ENDPOINT", "")
         self.enabled = self.endpoint and merged.get("OTEL_SDK_DISABLED", "").lower() not in {
             "1",
@@ -88,6 +103,9 @@ class Telemetry:
         return attrs
 
     def log(self, level, event, **fields):
+        level = normalize_level(level)
+        if LEVELS[level] < LEVELS[self.log_level]:
+            return
         record = {
             "timestamp": now_iso(),
             "level": level,

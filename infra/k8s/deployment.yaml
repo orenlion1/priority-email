@@ -40,6 +40,8 @@ spec:
             - secretRef:
                 name: priority-email-secrets
           env:
+            - name: EMAIL_LOG_LEVEL
+              value: ERROR
             - name: EMAIL_POLL_STATE_FILE
               value: /tmp/email-poller-state.json
             - name: EMAIL_POLL_LOG_FILE

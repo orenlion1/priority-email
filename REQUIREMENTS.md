@@ -67,6 +67,9 @@ Priority Email helps users avoid missing important messages that are buried acro
 - Incremental pollers must not skip older-but-still-new messages when a provider returns paginated results.
 - Poller logs must avoid printing email metadata unless explicitly requested for debugging or validation.
 - Each provider poll attempt must append one structured JSON line to the configured poll logfile without including OAuth secrets, authorization headers, full email content, or verbose email metadata.
+- Successful provider poll attempts must be recorded at `INFO` level in the poll logfile.
+- Provider poll failures must emit `ERROR` level runtime logs with enough sanitized context for debugging, including provider, duration, sanitized request details, Slack error notification outcome, state/log file paths, and non-secret checkpoint state.
+- Runtime stdout logging must be configurable by log level, and production must default to `ERROR`.
 - If a request to an email provider fails, the poller must post an error notification to Slack with the provider name, sanitized request URL, HTTP status when available, reason, and truncated response details.
 - Provider error notifications must never include OAuth tokens, refresh tokens, client secrets, authorization headers, or full email content.
 - Provider error notifications should be configurable so they can be disabled for local troubleshooting.

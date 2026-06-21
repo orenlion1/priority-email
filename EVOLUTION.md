@@ -259,6 +259,18 @@ Key evidence:
 - `infra/k8s/network-policy.yaml`: preserves default-deny ingress while allowing in-namespace OTLP traffic to Alloy.
 - `.env.example` and `DEPLOYMENT_PLAN.md`: document the required Grafana Cloud ingest settings without exposing credentials.
 
+### June 21, 2026: Add Poll Log Levels
+
+Priority Email added explicit log levels for runtime and poll-audit logging.
+
+Key evidence:
+
+- `scripts/telemetry.py`: supports configurable runtime log-level filtering through `EMAIL_LOG_LEVEL` or `LOG_LEVEL`.
+- `scripts/poll-email.py`: writes one structured poll logfile entry per provider poll, using `INFO` for successful polls and `ERROR` for failed polls.
+- `scripts/poll-email.py`: emits provider failures at runtime `ERROR` level with sanitized request details, duration, Slack notification result, state/log file paths, and non-secret checkpoint state.
+- `scripts/run-poller-loop.sh`: suppresses wrapper poll-cycle INFO messages when the configured log level is `ERROR`.
+- `infra/k8s/deployment.yaml`: sets production `EMAIL_LOG_LEVEL=ERROR`.
+
 ### June 21, 2026: Standardize Functional Change Delivery
 
 Priority Email standardized the delivery flow for functional runtime changes: push the source commit to GitHub, wait for CI to pass, deploy the same commit to AWS, and verify the live EKS image tag.

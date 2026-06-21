@@ -651,6 +651,23 @@ def append_poll_log(log_file, record, telemetry=None):
             )
 
 
+def provider_state_summary(provider_state):
+    return {
+        key: provider_state[key]
+        for key in (
+            "checkpoint_epoch",
+            "checkpoint_time",
+            "checkpoint_uid",
+            "initialized",
+            "last_error_at",
+            "last_polled_at",
+            "mailbox",
+            "status",
+        )
+        if key in provider_state
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description="Poll configured email providers.")
     parser.add_argument("--env-file", type=Path, default=Path(".env"))
@@ -695,12 +712,6 @@ def main():
             result = poller.poll(values, current)
         except EmailProviderRequestError as exc:
             record_provider_error(current, exc)
-            telemetry.log(
-                "error",
-                "provider_request_error",
-                provider=provider_name,
-                **exc.summary(),
-            )
             posted = notify_provider_error(values, provider_name, exc, telemetry=telemetry)
             telemetry.count(
                 "priority_email_provider_request_errors_total",
@@ -716,6 +727,17 @@ def main():
             duration_ms = (
                 dt.datetime.now(dt.UTC) - started
             ).total_seconds() * 1000
+            telemetry.log(
+                "error",
+                "provider_poll_failed",
+                provider=provider_name,
+                duration_ms=round(duration_ms, 3),
+                slack_error_notification_posted=posted,
+                state_file=str(state_file),
+                poll_log_file=str(poll_log_file),
+                provider_state=provider_state_summary(current),
+                **exc.summary(),
+            )
             telemetry.gauge(
                 "priority_email_poll_cycle_duration_ms",
                 duration_ms,
@@ -726,6 +748,7 @@ def main():
                 poll_log_file,
                 {
                     "timestamp": utc_now_iso(),
+                    "level": "ERROR",
                     "event": "provider_poll",
                     "provider": provider_name,
                     "status": "error",
@@ -771,9 +794,10 @@ def main():
         )
         append_poll_log(
             poll_log_file,
-            {
-                "timestamp": utc_now_iso(),
-                "event": "provider_poll",
+                {
+                    "timestamp": utc_now_iso(),
+                    "level": "INFO",
+                    "event": "provider_poll",
                 "provider": provider_name,
                 "status": "ok",
                 "mode": mode,
