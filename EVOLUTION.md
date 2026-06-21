@@ -208,6 +208,17 @@ Key evidence:
 - First AWS poller log: Gmail initialization inspected 20 messages and wrote the checkpoint to `/tmp/email-poller-state.json`.
 - Storage finding: the Ensemble EKS cluster has no EBS CSI add-on installed, so PVC-backed file checkpoints were not available during this deploy. Durable checkpoints remain planned for DynamoDB.
 
+Hard parts encountered:
+
+- Docker was installed but the daemon was not running at first, so the image build/push path required starting Docker Desktop and waiting for the daemon before ECR work could continue.
+- The ECR repository `priority-email-service` did not exist yet, so deployment automation had to create it with encryption, image scanning, and Priority Email tags before pushing an image.
+- Secret handling needed two parallel safety paths: real `.env` values were synced to AWS Secrets Manager and a namespace-local Kubernetes secret, while `.dockerignore`, `.gitignore`, and CI scans kept `.env`, OAuth client JSON, real filter values, and generated secret material out of Git and Docker build context.
+- Filter values had to stay uncommitted locally while still reaching the cluster, so the Kubernetes deploy script creates `priority-email-filters` from ignored `filters/*.txt` files instead of committed templates.
+- The first image was deployed as `latest`, then the workflow was tightened to pin Kubernetes to the immutable Git SHA image tag so source, ECR, and the live deployment can be correlated.
+- A deploy-script bug captured verbose Docker push output as part of the image URI. The live deployment stayed healthy on the prior image, the bad intermediate ReplicaSet was corrected, and the script now captures only the final image URI line before calling `kubectl set image`.
+- PVC-backed file checkpointing looked attractive for preserving poller state across pod restarts, but the Ensemble EKS cluster has no EBS CSI add-on installed. The PVC remained pending, so the deployment was restored to pod-local `/tmp` state and durable checkpoints were deferred to the planned DynamoDB backend.
+- Rolling a sleeping worker creates brief old-pod/new-pod overlap while Kubernetes drains the previous poll loop. Final verification had to check ReplicaSets and the actual live pod image, not just a single `kubectl logs deployment/...` sample.
+
 ### June 21, 2026: Add CI/CD Automation Skill
 
 Priority Email imported the team CI/CD automation skill and added a GitHub Actions quality gate for every pull request and push to `main`.
