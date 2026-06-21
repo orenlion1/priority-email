@@ -1,9 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+env_file="${ENV_FILE:-.env}"
 repo_name="${ECR_REPOSITORY_NAME:-priority-email-service}"
-region="${AWS_REGION:-us-east-1}"
-profile="${AWS_PROFILE:?Set AWS_PROFILE in your local .env or shell.}"
+
+env_value() {
+  local key="$1"
+  local value
+  value="$(grep -E "^${key}=" "$env_file" | tail -n 1 | cut -d= -f2- || true)"
+  value="${value%\"}"
+  value="${value#\"}"
+  printf '%s' "$value"
+}
+
+region="${AWS_REGION:-$(env_value AWS_REGION)}"
+region="${region:-us-east-1}"
+profile="${AWS_PROFILE:-$(env_value AWS_PROFILE)}"
+: "${profile:?Set AWS_PROFILE in your local .env or shell.}"
 
 if ! aws ecr describe-repositories \
   --repository-names "$repo_name" \

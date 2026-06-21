@@ -1,9 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-region="${AWS_REGION:-us-east-1}"
-profile="${AWS_PROFILE:?Set AWS_PROFILE in your local .env or shell.}"
-account_id="${AWS_ACCOUNT_ID:?Set AWS_ACCOUNT_ID in your local .env or shell.}"
+env_file="${ENV_FILE:-.env}"
+
+env_value() {
+  local key="$1"
+  local value
+  value="$(grep -E "^${key}=" "$env_file" | tail -n 1 | cut -d= -f2- || true)"
+  value="${value%\"}"
+  value="${value#\"}"
+  printf '%s' "$value"
+}
+
+region="${AWS_REGION:-$(env_value AWS_REGION)}"
+region="${region:-us-east-1}"
+profile="${AWS_PROFILE:-$(env_value AWS_PROFILE)}"
+account_id="${AWS_ACCOUNT_ID:-$(env_value AWS_ACCOUNT_ID)}"
+: "${profile:?Set AWS_PROFILE in your local .env or shell.}"
+: "${account_id:?Set AWS_ACCOUNT_ID in your local .env or shell.}"
 repo_name="${ECR_REPOSITORY_NAME:-priority-email-service}"
 tag="${IMAGE_TAG:-$(git rev-parse --short HEAD)}"
 image_uri="$account_id.dkr.ecr.$region.amazonaws.com/$repo_name:$tag"

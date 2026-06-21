@@ -218,6 +218,7 @@ Hard parts encountered:
 - A deploy-script bug captured verbose Docker push output as part of the image URI. The live deployment stayed healthy on the prior image, the bad intermediate ReplicaSet was corrected, and the script now captures only the final image URI line before calling `kubectl set image`.
 - PVC-backed file checkpointing looked attractive for preserving poller state across pod restarts, but the reference EKS cluster has no EBS CSI add-on installed. The PVC remained pending, so the deployment was restored to pod-local `/tmp` state and durable checkpoints were deferred to the planned DynamoDB backend.
 - Rolling a sleeping worker creates brief old-pod/new-pod overlap while Kubernetes drains the previous poll loop. Final verification had to check ReplicaSets and the actual live pod image, not just a single `kubectl logs deployment/...` sample.
+- `.env` must be treated as dotenv data, not a shell script. A Grafana Cloud token contained shell-significant characters during monitoring rollout, so deploy helpers now parse only the AWS key/value fields they need instead of sourcing the whole secrets file.
 
 ### June 21, 2026: Add CI/CD Automation Skill
 
