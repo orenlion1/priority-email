@@ -238,6 +238,7 @@ The user must be able to configure:
 - Metrics and traces must be emitted through OpenTelemetry Protocol.
 - The worker must emit low-cardinality metrics for provider poll cycles, provider request failures, Slack error notification outcomes, messages checked, and poll cycle duration.
 - Each request to an email provider must emit RED-style metrics with a provider label, low-cardinality operation label, method label, outcome label, status label, and reason label.
+- Each request to an external dependency, including email providers, Slack, push notification providers, and AWS service integrations added later, must emit RED-style metrics with a dependency label, low-cardinality operation label, method label, outcome label, status label, and reason label.
 - Traces must include one provider polling span per provider poll attempt.
 - Telemetry export must be fail-open so a collector or Grafana Cloud outage does not stop email polling.
 - Grafana Cloud ingest credentials must be stored only in local `.env`, AWS Secrets Manager, and the namespace-local observability Kubernetes secret; they must not be committed.

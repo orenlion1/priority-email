@@ -81,6 +81,9 @@ class SuccessfulPoller(poll_email.BaseProviderPoller):
 
 
 class FakeHttpResponse:
+    def __init__(self, body=b"{}"):
+        self.body = body
+
     def __enter__(self):
         return self
 
@@ -88,7 +91,7 @@ class FakeHttpResponse:
         return False
 
     def read(self):
-        return b"{}"
+        return self.body
 
 
 class FakeYahooConnection:
@@ -281,8 +284,26 @@ class GmailPollerTests(unittest.TestCase):
 
         self.assertEqual({"ok": True}, result)
         metric_names = [item[1] for item in telemetry.metrics]
+        self.assertIn("priority_email_external_dependency_requests_total", metric_names)
+        self.assertIn("priority_email_external_dependency_request_duration_ms", metric_names)
         self.assertIn("priority_email_provider_requests_total", metric_names)
         self.assertIn("priority_email_provider_request_duration_ms", metric_names)
+        external_metric = [
+            item
+            for item in telemetry.metrics
+            if item[1] == "priority_email_external_dependency_requests_total"
+        ][0]
+        self.assertEqual(
+            {
+                "dependency": "gmail",
+                "operation": "list_messages",
+                "method": "GET",
+                "outcome": "ok",
+                "status": "ok",
+                "reason": "none",
+            },
+            external_metric[3],
+        )
         request_metric = [
             item
             for item in telemetry.metrics
@@ -319,9 +340,22 @@ class GmailPollerTests(unittest.TestCase):
                 )
 
         metric_names = [item[1] for item in telemetry.metrics]
+        self.assertIn("priority_email_external_dependency_requests_total", metric_names)
+        self.assertIn("priority_email_external_dependency_request_errors_total", metric_names)
+        self.assertIn("priority_email_external_dependency_request_duration_ms", metric_names)
         self.assertIn("priority_email_provider_requests_total", metric_names)
         self.assertIn("priority_email_provider_request_errors_total", metric_names)
         self.assertIn("priority_email_provider_request_duration_ms", metric_names)
+        external_error_metric = [
+            item
+            for item in telemetry.metrics
+            if item[1] == "priority_email_external_dependency_request_errors_total"
+        ][0]
+        self.assertEqual("gmail", external_error_metric[3]["dependency"])
+        self.assertEqual("list_messages", external_error_metric[3]["operation"])
+        self.assertEqual("error", external_error_metric[3]["outcome"])
+        self.assertEqual("503", external_error_metric[3]["status"])
+        self.assertEqual("provider_unavailable", external_error_metric[3]["reason"])
         error_metric = [
             item
             for item in telemetry.metrics
@@ -412,7 +446,7 @@ class GmailPollerTests(unittest.TestCase):
             posted = []
             stdout = io.StringIO()
 
-            def fake_post(token, channel, text):
+            def fake_post(token, channel, text, telemetry=None):
                 posted.append({"token": token, "channel": channel, "text": text})
                 return {"ok": True}
 
@@ -496,6 +530,76 @@ class GmailPollerTests(unittest.TestCase):
             )
         self.assertFalse(posted)
         post.assert_not_called()
+
+    def test_slack_success_emits_external_dependency_metrics_without_token(self):
+        telemetry = poll_email.Telemetry({})
+
+        def fake_urlopen(req, timeout):
+            self.assertEqual("Bearer slack-secret-token", req.headers["Authorization"])
+            self.assertEqual(30, timeout)
+            return FakeHttpResponse(b'{"ok": true, "channel": "C123", "ts": "1.23"}')
+
+        with mock.patch("urllib.request.urlopen", fake_urlopen):
+            response = poll_email.post_slack_message(
+                "slack-secret-token",
+                "C123",
+                "hello",
+                telemetry=telemetry,
+            )
+
+        self.assertTrue(response["ok"])
+        metric_names = [item[1] for item in telemetry.metrics]
+        self.assertIn("priority_email_external_dependency_requests_total", metric_names)
+        self.assertIn("priority_email_external_dependency_request_duration_ms", metric_names)
+        request_metric = [
+            item
+            for item in telemetry.metrics
+            if item[1] == "priority_email_external_dependency_requests_total"
+        ][0]
+        self.assertEqual(
+            {
+                "dependency": "slack",
+                "operation": "chat_post_message",
+                "method": "POST",
+                "outcome": "ok",
+                "status": "ok",
+                "reason": "none",
+            },
+            request_metric[3],
+        )
+        self.assertNotIn("slack-secret-token", json.dumps(telemetry.metrics))
+
+    def test_slack_app_error_emits_external_dependency_error_metrics(self):
+        telemetry = poll_email.Telemetry({})
+
+        with mock.patch(
+            "urllib.request.urlopen",
+            return_value=FakeHttpResponse(b'{"ok": false, "error": "not_in_channel"}'),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "not_in_channel"):
+                poll_email.post_slack_message(
+                    "slack-secret-token",
+                    "C123",
+                    "hello",
+                    telemetry=telemetry,
+                )
+
+        metric_names = [item[1] for item in telemetry.metrics]
+        self.assertIn("priority_email_external_dependency_requests_total", metric_names)
+        self.assertIn("priority_email_external_dependency_request_errors_total", metric_names)
+        self.assertIn("priority_email_external_dependency_request_duration_ms", metric_names)
+        error_metric = [
+            item
+            for item in telemetry.metrics
+            if item[1] == "priority_email_external_dependency_request_errors_total"
+        ][0]
+        self.assertEqual("slack", error_metric[3]["dependency"])
+        self.assertEqual("chat_post_message", error_metric[3]["operation"])
+        self.assertEqual("POST", error_metric[3]["method"])
+        self.assertEqual("error", error_metric[3]["outcome"])
+        self.assertEqual("slack_error", error_metric[3]["status"])
+        self.assertEqual("not_in_channel", error_metric[3]["reason"])
+        self.assertNotIn("slack-secret-token", json.dumps(telemetry.metrics))
 
 
 class YahooPollerTests(unittest.TestCase):

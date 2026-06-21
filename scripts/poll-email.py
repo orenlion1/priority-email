@@ -143,6 +143,35 @@ def request_json(url, *, method="GET", data=None, headers=None):
         ) from exc
 
 
+def record_external_dependency_request_metrics(
+    telemetry,
+    *,
+    dependency,
+    operation,
+    method,
+    outcome,
+    duration_ms,
+    status="ok",
+    reason="none",
+):
+    if telemetry is None:
+        return
+    labels = {
+        "dependency": dependency,
+        "operation": operation,
+        "method": method,
+        "outcome": outcome,
+        "status": status or "unknown",
+        "reason": reason or "none",
+    }
+    telemetry.count("priority_email_external_dependency_requests_total", **labels)
+    telemetry.gauge(
+        "priority_email_external_dependency_request_duration_ms", duration_ms, **labels
+    )
+    if outcome != "ok":
+        telemetry.count("priority_email_external_dependency_request_errors_total", **labels)
+
+
 def record_provider_request_metrics(
     telemetry,
     *,
@@ -156,6 +185,16 @@ def record_provider_request_metrics(
 ):
     if telemetry is None:
         return
+    record_external_dependency_request_metrics(
+        telemetry,
+        dependency=provider,
+        operation=operation,
+        method=method,
+        outcome=outcome,
+        duration_ms=duration_ms,
+        status=status,
+        reason=reason,
+    )
     labels = {
         "provider": provider,
         "operation": operation,
@@ -237,7 +276,7 @@ def metered_imap_operation(telemetry, *, provider, operation, action):
     return result
 
 
-def post_slack_message(token, channel, text):
+def post_slack_message(token, channel, text, telemetry=None):
     payload = json.dumps({"channel": channel, "text": text}).encode()
     req = urllib.request.Request(
         SLACK_POST_MESSAGE_URL,
@@ -248,10 +287,53 @@ def post_slack_message(token, channel, text):
         },
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        response = json.loads(resp.read().decode())
-    if not response.get("ok"):
-        raise RuntimeError(f"Slack post failed: {response.get('error', 'unknown_error')}")
+    started = dt.datetime.now(dt.UTC)
+    outcome = "ok"
+    status = "ok"
+    reason = "none"
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            response = json.loads(resp.read().decode())
+        if not response.get("ok"):
+            outcome = "error"
+            status = "slack_error"
+            reason = truncate(response.get("error", "unknown_error"), 120)
+            raise RuntimeError(f"Slack post failed: {reason}")
+    except urllib.error.HTTPError as exc:
+        outcome = "error"
+        status = str(exc.code)
+        reason = truncate(exc.reason or "http_error", 120)
+        details = truncate(exc.read().decode(errors="replace"), 240)
+        if details:
+            raise RuntimeError(f"Slack post HTTP failed: status={status} reason={reason}") from exc
+        raise RuntimeError(f"Slack post HTTP failed: status={status} reason={reason}") from exc
+    except urllib.error.URLError as exc:
+        outcome = "error"
+        status = "unknown"
+        reason = truncate(exc.reason or type(exc).__name__, 120)
+        raise RuntimeError(f"Slack post failed: reason={reason}") from exc
+    except TimeoutError as exc:
+        outcome = "error"
+        status = "unknown"
+        reason = "timeout"
+        raise RuntimeError("Slack post failed: reason=timeout") from exc
+    except json.JSONDecodeError as exc:
+        outcome = "error"
+        status = "unknown"
+        reason = "invalid_json"
+        raise RuntimeError("Slack post failed: reason=invalid_json") from exc
+    finally:
+        duration_ms = (dt.datetime.now(dt.UTC) - started).total_seconds() * 1000
+        record_external_dependency_request_metrics(
+            telemetry,
+            dependency="slack",
+            operation="chat_post_message",
+            method="POST",
+            outcome=outcome,
+            duration_ms=duration_ms,
+            status=status,
+            reason=reason,
+        )
     return response
 
 
@@ -297,7 +379,12 @@ def notify_provider_error(values, provider_name, error, telemetry=None):
             print(f"{provider_name}: slack_error_notification=skipped missing_slack_config")
         return False
     try:
-        post_slack_message(token, channel, format_provider_error_message(provider_name, error))
+        post_slack_message(
+            token,
+            channel,
+            format_provider_error_message(provider_name, error),
+            telemetry=telemetry,
+        )
     except Exception as exc:
         if telemetry:
             telemetry.log(

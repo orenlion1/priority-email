@@ -41,6 +41,12 @@ Provider request RED metrics are emitted for Gmail/Yahoo API and IMAP operations
 - `priority_email_provider_request_errors_total`
 - `priority_email_provider_request_duration_ms`
 
+External dependency RED metrics are emitted for email providers, Slack, and future outbound integrations with `dependency`, `operation`, `method`, `outcome`, `status`, and `reason` labels:
+
+- `priority_email_external_dependency_requests_total`
+- `priority_email_external_dependency_request_errors_total`
+- `priority_email_external_dependency_request_duration_ms`
+
 For local OTEL testing, run an OTLP HTTP collector on `localhost:4318` or set `OTEL_EXPORTER_OTLP_ENDPOINT` to another collector. Telemetry export is fail-open: email polling continues if the collector is unavailable.
 
 ## CI Commands

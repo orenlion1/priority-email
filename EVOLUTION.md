@@ -281,6 +281,16 @@ Key evidence:
 - `scripts/poll-email.py`: emits `priority_email_provider_requests_total`, `priority_email_provider_request_errors_total`, and `priority_email_provider_request_duration_ms`.
 - `tests/test_poll_email.py`: verifies provider request metrics include provider, operation, method, outcome, status, and reason labels without leaking request secrets.
 
+### June 21, 2026: Add External Dependency RED Metrics
+
+Priority Email broadened request-level observability from email-provider-specific calls to all outbound dependencies.
+
+Key evidence:
+
+- `scripts/poll-email.py`: emits `priority_email_external_dependency_requests_total`, `priority_email_external_dependency_request_errors_total`, and `priority_email_external_dependency_request_duration_ms`.
+- `scripts/poll-email.py`: records Slack `chat.postMessage` success, HTTP failures, transport failures, invalid JSON responses, and Slack app-level errors such as `not_in_channel` without exposing Slack tokens.
+- `tests/test_poll_email.py`: verifies generic dependency metrics for provider calls and Slack calls, including Slack app-level errors.
+
 ### June 21, 2026: Standardize Functional Change Delivery
 
 Priority Email standardized the delivery flow for functional runtime changes: push the source commit to GitHub, wait for CI to pass, deploy the same commit to AWS, and verify the live EKS image tag.
