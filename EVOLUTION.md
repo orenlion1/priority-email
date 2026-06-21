@@ -203,7 +203,7 @@ Key evidence:
 - `scripts/aws/deploy-to-aws.sh`: syncs `.env` to AWS Secrets Manager, builds/pushes the image to ECR, and applies Kubernetes manifests.
 - `infra/k8s/`: namespace, service account, deployment, network policy, and PodDisruptionBudget for the isolated `priority-email` workload.
 - AWS Secrets Manager: `priority-email/runtime` created or updated with the local runtime configuration.
-- ECR image: `629513454417.dkr.ecr.us-east-1.amazonaws.com/priority-email-service:d6d007c`, digest `sha256:0e6e3f1cf0273070858295514918626acb386863d0ebff9539be1db716b1b5b2`.
+- ECR image: `629513454417.dkr.ecr.us-east-1.amazonaws.com/priority-email-service:e181bdb`, digest `sha256:c8b074c30996f3ff8e0ce15bc1fd8d86dfc5380a5f7cf8a0572b3cb84fc7e8fa`.
 - Kubernetes: `priority-email-service` rolled out successfully with one running replica.
 - First AWS poller log: Gmail initialization inspected 20 messages and wrote the checkpoint to `/tmp/email-poller-state.json`.
 - Storage finding: the Ensemble EKS cluster has no EBS CSI add-on installed, so PVC-backed file checkpoints were not available during this deploy. Durable checkpoints remain planned for DynamoDB.
