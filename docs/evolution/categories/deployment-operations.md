@@ -24,7 +24,9 @@
 | 2026-06-21 | Generated evolution flow diagrams were added for light and dark documentation surfaces. | `docs/evolution/diagrams/`, `EVOLUTION.md` |
 | 2026-06-21 | Gmail incremental polling was hardened to page all messages newer than the checkpoint and avoid metadata output unless `--verbose` is used. | `scripts/poll-email.py`, `tests/test_poll_email.py`, `REQUIREMENTS.md` |
 | 2026-06-21 | Priority Email adopted Ensemble's local AWS profile and account/region settings without copying static AWS keys. | `.env.example`, `REQUIREMENTS.md`, `DEPLOYMENT_PLAN.md` |
+| 2026-06-21 | Priority Email was packaged and pushed to AWS: ECR image, Secrets Manager runtime secret, ConfigMap filters, and a live EKS worker in the `priority-email` namespace. | `Dockerfile`, `infra/k8s/`, `scripts/aws/`, `DEPLOYMENT_PLAN.md` |
+| 2026-06-21 | PVC-backed checkpointing was attempted but deferred because the Ensemble EKS cluster has no EBS CSI add-on installed. Durable checkpoints remain planned for DynamoDB. | `DEPLOYMENT_PLAN.md`, `infra/k8s/deployment.yaml` |
 
 ## Current Operations Shape
 
-Priority Email is planned as a Kubernetes workload on the Ensemble EKS cluster while remaining isolated in its own namespace. Runtime state is planned for DynamoDB, runtime secrets for AWS Secrets Manager and Kubernetes secrets, observability for Grafana Labs, Gmail OAuth credentials sourced from the configured Google Cloud project, and Slack posting through the installed `Priority Email` Slack app.
+Priority Email now runs as a Kubernetes worker on the Ensemble EKS cluster while remaining isolated in its own namespace. Runtime secrets are synced to AWS Secrets Manager and a namespace-local Kubernetes secret. Filter files are mounted from a namespace-local ConfigMap. Durable runtime state is still planned for DynamoDB; the first worker deployment uses pod-local file state until the data-stack checkpoint backend is implemented.

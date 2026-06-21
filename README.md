@@ -8,7 +8,8 @@ Priority Email monitors connected mail accounts for important sender matches, th
 - Gmail polling is implemented with checkpointed incremental reads.
 - Yahoo Mail and Apple iCloud Mail pollers are stubbed for future implementation.
 - Slack posting is validated through the `Priority Email` Slack app.
-- AWS deployment planning targets the Ensemble AWS account through the `ensemble-grafana` AWS CLI profile.
+- AWS deployment is live in the Ensemble AWS account through the `ensemble-grafana` AWS CLI profile.
+- The live Kubernetes worker runs in the dedicated `priority-email` namespace.
 - Observability is standardized on Grafana Labs tooling and services.
 
 ## Local Commands
@@ -35,6 +36,14 @@ Do not commit local secrets or real filter values.
 - Keep real filter values in ignored `filters/*.txt` files.
 - Keep Google OAuth client secret JSON files local and ignored.
 - Use `AWS_PROFILE=ensemble-grafana`; do not copy static AWS access keys into this repo.
+
+## AWS Deploy
+
+```bash
+scripts/aws/deploy-to-aws.sh
+```
+
+The deploy script syncs `.env` to AWS Secrets Manager, builds and pushes the Docker image to ECR, mounts real local filter files as a Kubernetes ConfigMap, and applies the dedicated `priority-email` Kubernetes workload.
 
 ## Documentation
 

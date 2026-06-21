@@ -85,8 +85,14 @@ digraph priority_email_evolution_flow {
     color="#0f172a"
   ];
 
+  aws_live [
+    label="AWS worker live\nECR image pushed\nSecrets Manager runtime\nConfigMap filters\npriority-email namespace",
+    fillcolor="#ecfccb",
+    color="#65a30d"
+  ];
+
   next [
-    label="Next implementation\nFilter matching pipeline\nSlack summaries from matches\nYahoo/iCloud pollers\nAWS runtime resources",
+    label="Next implementation\nDurable DynamoDB checkpoints\nFilter matching pipeline\nSlack summaries from matches\nYahoo/iCloud pollers",
     fillcolor="#fee2e2",
     color="#dc2626"
   ];
@@ -99,5 +105,6 @@ digraph priority_email_evolution_flow {
   slack -> policy;
   policy -> quality;
   quality -> github;
-  github -> next;
+  github -> aws_live;
+  aws_live -> next;
 }

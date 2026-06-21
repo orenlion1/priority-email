@@ -3,6 +3,7 @@ import argparse
 import datetime as dt
 import email.utils
 import json
+import os
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -15,12 +16,14 @@ METADATA_HEADERS = ["From", "Subject", "Date"]
 
 def load_env(path):
     values = {}
-    for line in path.read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        values[key] = value
+    if path.exists():
+        for line in path.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            values[key] = value
+    values.update({key: value for key, value in os.environ.items() if value})
     return values
 
 

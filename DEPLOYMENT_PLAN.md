@@ -29,6 +29,26 @@ Priority Email should reuse the already-established AWS substrate where appropri
 
 Deploy `priority-email-service` as a Kubernetes workload on the Ensemble EKS cluster in a dedicated `priority-email` namespace.
 
+Current AWS deployment status:
+
+- AWS account: `629513454417`
+- AWS region: `us-east-1`
+- EKS cluster: `ensemble-grafana`
+- Kubernetes namespace: `priority-email`
+- ECR repository: `629513454417.dkr.ecr.us-east-1.amazonaws.com/priority-email-service`
+- Runtime secret path: AWS Secrets Manager `priority-email/runtime`
+- Kubernetes secret: `priority-email/priority-email-secrets`
+- Kubernetes ConfigMap: `priority-email/priority-email-filters`
+- Deployed image tag: `d6d007c`
+- Image digest: `sha256:0e6e3f1cf0273070858295514918626acb386863d0ebff9539be1db716b1b5b2`
+- Live worker status: deployed as one replica in `priority-email`.
+
+Current runtime limitation:
+
+- The first AWS worker deployment uses the local file checkpoint backend on pod-local `/tmp`, matching the current script implementation.
+- The Ensemble EKS cluster currently has no EBS CSI add-on installed, so a PVC-backed checkpoint volume could not be provisioned during the initial deploy.
+- Durable AWS-hosted checkpoints remain the next data-stack step, preferably DynamoDB as already planned below.
+
 Initial service shape:
 
 - One backend service container.
@@ -59,6 +79,7 @@ Initial service shape:
    - small production image
    - read-only root filesystem compatible behavior
    - `/tmp` as the only writable path
+   - `.dockerignore` excludes local `.env`, real filters, OAuth client secret JSON, state, and generated secret material from the Docker build context
 
 3. Push images to ECR using the Ensemble naming pattern:
 
@@ -67,6 +88,14 @@ Initial service shape:
 ```
 
 If the ECR repository does not exist, add it to the appropriate Terraform stack or create it with the same tagging conventions used by Ensemble.
+
+Current helper scripts:
+
+- `scripts/aws/ensure-ecr.sh`
+- `scripts/aws/sync-runtime-secret.sh`
+- `scripts/aws/build-and-push-image.sh`
+- `scripts/kubernetes/apply-manifests.sh`
+- `scripts/aws/deploy-to-aws.sh`
 
 ## Phase 2: Data Stack Changes
 

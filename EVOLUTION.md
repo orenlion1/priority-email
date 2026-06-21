@@ -193,6 +193,21 @@ Key evidence:
 - `python3 -m unittest discover tests`: unit tests pass before publication.
 - Staged safety scan found no forbidden paths or populated secret values before publication.
 
+### June 21, 2026: Push Worker To AWS
+
+Priority Email was packaged as a non-root Docker worker and deployed to the Ensemble EKS cluster in the dedicated `priority-email` namespace.
+
+Key evidence:
+
+- `Dockerfile` and `.dockerignore`: package only safe runtime files and exclude local secrets, real filters, state, and OAuth client secret JSON from the build context.
+- `scripts/aws/deploy-to-aws.sh`: syncs `.env` to AWS Secrets Manager, builds/pushes the image to ECR, and applies Kubernetes manifests.
+- `infra/k8s/`: namespace, service account, deployment, network policy, and PodDisruptionBudget for the isolated `priority-email` workload.
+- AWS Secrets Manager: `priority-email/runtime` created or updated with the local runtime configuration.
+- ECR image: `629513454417.dkr.ecr.us-east-1.amazonaws.com/priority-email-service:d6d007c`, digest `sha256:0e6e3f1cf0273070858295514918626acb386863d0ebff9539be1db716b1b5b2`.
+- Kubernetes: `priority-email-service` rolled out successfully with one running replica.
+- First AWS poller log: Gmail initialization inspected 20 messages and wrote the checkpoint to `/tmp/email-poller-state.json`.
+- Storage finding: the Ensemble EKS cluster has no EBS CSI add-on installed, so PVC-backed file checkpoints were not available during this deploy. Durable checkpoints remain planned for DynamoDB.
+
 ## Current Shape
 
 1. `REQUIREMENTS.md` defines the product, security, provider, and platform requirements.
@@ -208,3 +223,4 @@ Key evidence:
 11. AWS deployment access uses the Ensemble `ensemble-grafana` AWS CLI profile instead of static keys.
 12. `README.md` documents the current safe local workflow for the private GitHub repo.
 13. `EVOLUTION.md`, `docs/evolution/categories/`, and generated Graphviz flow diagrams preserve the project chronology.
+14. `Dockerfile`, AWS helper scripts, and Kubernetes manifests deploy the initial Gmail poller worker to AWS.
