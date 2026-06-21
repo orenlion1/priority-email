@@ -232,6 +232,19 @@ Key evidence:
 - `scripts/ci/k8s-static-check.py`: checks the dedicated `priority-email` Kubernetes manifests for expected names, namespace isolation, ConfigMap/secret references, and hardening flags.
 - `REQUIREMENTS.md` and `README.md`: document CI expectations and local CI commands.
 
+### June 21, 2026: Add Slack Error Notifications For Provider Requests
+
+Provider request failures now notify Slack with sanitized details so email integration failures are visible without requiring a shell on the worker pod.
+
+Key evidence:
+
+- `scripts/poll-email.py`: catches `EmailProviderRequestError`, records the sanitized error in provider state, posts details to Slack when configured, and continues the poll cycle without crashing the worker.
+- Error notifications include provider, method, sanitized URL, HTTP status, reason, and truncated provider response details.
+- URL sanitization redacts sensitive query parameters such as `access_token`, `client_secret`, `code`, `key`, `password`, and `token`.
+- `EMAIL_POLL_SLACK_ERROR_NOTIFICATIONS_ENABLED=false` disables Slack error posts for local troubleshooting.
+- `tests/test_poll_email.py`: covers Slack error posting, redaction, saved error state, and the disable switch.
+- `REQUIREMENTS.md`: documents provider request error notification behavior and secret-safety requirements.
+
 ## Current Shape
 
 1. `REQUIREMENTS.md` defines the product, security, provider, and platform requirements.
@@ -249,3 +262,4 @@ Key evidence:
 13. `EVOLUTION.md`, `docs/evolution/categories/`, and generated Graphviz flow diagrams preserve the project chronology.
 14. `Dockerfile`, AWS helper scripts, and Kubernetes manifests deploy the initial Gmail poller worker to AWS.
 15. GitHub Actions now enforces a secret-safe CI quality gate before changes reach `main`.
+16. Provider request failures are posted to Slack with sanitized error details.

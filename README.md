@@ -27,6 +27,8 @@ Use `--verbose` with the Gmail poller only when message metadata is needed for d
 python3 scripts/poll-email.py --provider gmail --verbose
 ```
 
+Provider request failures are posted to Slack by default when `SLACK_BOT_TOKEN` and `SLACK_CHANNEL_ID` are configured. Set `EMAIL_POLL_SLACK_ERROR_NOTIFICATIONS_ENABLED=false` for local troubleshooting without Slack error posts.
+
 ## CI Commands
 
 ```bash

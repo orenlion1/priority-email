@@ -4,6 +4,7 @@ import datetime as dt
 import email.utils
 import json
 import os
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -12,6 +13,8 @@ from pathlib import Path
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me"
 METADATA_HEADERS = ["From", "Subject", "Date"]
+SLACK_POST_MESSAGE_URL = "https://slack.com/api/chat.postMessage"
+SENSITIVE_QUERY_KEYS = {"access_token", "client_secret", "code", "key", "password", "token"}
 
 
 def load_env(path):
@@ -44,6 +47,67 @@ def int_config(values, key, default):
         raise SystemExit(f"{key} must be an integer.")
 
 
+def bool_config(values, key, default):
+    raw = values.get(key, "")
+    if not raw:
+        return default
+    normalized = raw.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise SystemExit(f"{key} must be true or false.")
+
+
+def truncate(value, limit=1200):
+    text = str(value)
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3] + "..."
+
+
+def sanitize_url(url):
+    parsed = urllib.parse.urlsplit(url)
+    query = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+    safe_query = [
+        (key, "[redacted]" if key.lower() in SENSITIVE_QUERY_KEYS else value)
+        for key, value in query
+    ]
+    return urllib.parse.urlunsplit(
+        (
+            parsed.scheme,
+            parsed.netloc,
+            parsed.path,
+            urllib.parse.urlencode(safe_query),
+            parsed.fragment,
+        )
+    )
+
+
+class EmailProviderRequestError(Exception):
+    def __init__(self, *, method, url, status="", reason="", details=""):
+        self.method = method
+        self.url = sanitize_url(url)
+        self.status = str(status) if status else ""
+        self.reason = truncate(reason, 240)
+        self.details = truncate(details, 1200)
+        message_parts = [f"{self.method} {self.url}"]
+        if self.status:
+            message_parts.append(f"status={self.status}")
+        if self.reason:
+            message_parts.append(f"reason={self.reason}")
+        super().__init__(" ".join(message_parts))
+
+    def summary(self):
+        return {
+            "method": self.method,
+            "url": self.url,
+            "status": self.status,
+            "reason": self.reason,
+            "details": self.details,
+        }
+
+
 def request_json(url, *, method="GET", data=None, headers=None):
     req = urllib.request.Request(url, data=data, headers=headers or {}, method=method)
     try:
@@ -51,7 +115,87 @@ def request_json(url, *, method="GET", data=None, headers=None):
             return json.loads(resp.read().decode())
     except urllib.error.HTTPError as exc:
         details = exc.read().decode(errors="replace")
-        raise SystemExit(f"HTTP {exc.code} from {url}: {details}")
+        raise EmailProviderRequestError(
+            method=method,
+            url=url,
+            status=exc.code,
+            reason=exc.reason,
+            details=details,
+        ) from exc
+    except urllib.error.URLError as exc:
+        raise EmailProviderRequestError(method=method, url=url, reason=exc.reason) from exc
+    except TimeoutError as exc:
+        raise EmailProviderRequestError(method=method, url=url, reason="timeout") from exc
+    except json.JSONDecodeError as exc:
+        raise EmailProviderRequestError(
+            method=method,
+            url=url,
+            reason="invalid_json",
+            details=str(exc),
+        ) from exc
+
+
+def post_slack_message(token, channel, text):
+    payload = json.dumps({"channel": channel, "text": text}).encode()
+    req = urllib.request.Request(
+        SLACK_POST_MESSAGE_URL,
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json; charset=utf-8",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        response = json.loads(resp.read().decode())
+    if not response.get("ok"):
+        raise RuntimeError(f"Slack post failed: {response.get('error', 'unknown_error')}")
+    return response
+
+
+def format_provider_error_message(provider_name, error):
+    details = error.summary()
+    lines = [
+        f"Priority Email provider request failed: {provider_name}",
+        f"method: {details['method']}",
+        f"url: {details['url']}",
+    ]
+    if details["status"]:
+        lines.append(f"status: {details['status']}")
+    if details["reason"]:
+        lines.append(f"reason: {details['reason']}")
+    if details["details"]:
+        lines.append(f"details: {details['details']}")
+    return "\n".join(lines)
+
+
+def notify_provider_error(values, provider_name, error):
+    if not bool_config(values, "EMAIL_POLL_SLACK_ERROR_NOTIFICATIONS_ENABLED", True):
+        print(f"{provider_name}: slack_error_notification=disabled")
+        return False
+    token = values.get("SLACK_BOT_TOKEN", "")
+    channel = values.get("SLACK_CHANNEL_ID", "")
+    if not token or not channel:
+        print(f"{provider_name}: slack_error_notification=skipped missing_slack_config")
+        return False
+    try:
+        post_slack_message(token, channel, format_provider_error_message(provider_name, error))
+    except Exception as exc:
+        print(f"{provider_name}: slack_error_notification=failed {truncate(exc, 240)}")
+        return False
+    print(f"{provider_name}: slack_error_notification=posted")
+    return True
+
+
+def record_provider_error(provider_state, error):
+    provider_state["last_polled_at"] = utc_now_iso()
+    provider_state["last_error"] = error.summary()
+    provider_state["last_error_at"] = provider_state["last_polled_at"]
+
+
+def clear_provider_error(provider_state):
+    provider_state.pop("last_error", None)
+    provider_state.pop("last_error_at", None)
 
 
 def load_state(path):
@@ -120,7 +264,12 @@ class GmailPoller(BaseProviderPoller):
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
         if not token.get("access_token"):
-            raise SystemExit("Token response did not include access_token.")
+            raise EmailProviderRequestError(
+                method="POST",
+                url=TOKEN_URL,
+                reason="missing_access_token",
+                details="Token response did not include access_token.",
+            )
         return token["access_token"]
 
     def list_messages_page(self, headers, max_results, checkpoint, page_token=None):
@@ -176,6 +325,7 @@ class GmailPoller(BaseProviderPoller):
         }
 
     def poll(self, values, provider_state):
+        clear_provider_error(provider_state)
         checkpoint = provider_state.get("checkpoint_epoch")
         initialized = checkpoint is None
         max_results = int_config(
@@ -212,6 +362,7 @@ class StubProviderPoller(BaseProviderPoller):
         self.name = name
 
     def poll(self, values, provider_state):
+        clear_provider_error(provider_state)
         provider_state["last_polled_at"] = utc_now_iso()
         provider_state["status"] = "not_implemented"
         return PollResult(
@@ -297,7 +448,13 @@ def main():
         if args.reset_provider_state:
             provider_state[provider_name] = {}
         current = provider_state.setdefault(provider_name, {})
-        result = poller.poll(values, current)
+        try:
+            result = poller.poll(values, current)
+        except EmailProviderRequestError as exc:
+            record_provider_error(current, exc)
+            print(f"{provider_name}: provider_request_error={exc}")
+            notify_provider_error(values, provider_name, exc)
+            continue
         print_result(result, verbose=args.verbose)
 
     save_state(state_file, state)

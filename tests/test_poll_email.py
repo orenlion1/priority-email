@@ -1,6 +1,10 @@
 import importlib.util
+import json
 from pathlib import Path
+import sys
+import tempfile
 import unittest
+from unittest import mock
 
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "scripts" / "poll-email.py"
@@ -42,6 +46,19 @@ def message(message_id, epoch):
         "subject": f"subject {message_id}",
         "date": "",
     }
+
+
+class FailingPoller(poll_email.BaseProviderPoller):
+    name = "failing"
+
+    def poll(self, values, provider_state):
+        raise poll_email.EmailProviderRequestError(
+            method="GET",
+            url="https://mail.example.test/messages?access_token=secret-token&page=1",
+            status=503,
+            reason="provider_unavailable",
+            details='{"error":"temporarily unavailable"}',
+        )
 
 
 class GmailPollerTests(unittest.TestCase):
@@ -104,6 +121,80 @@ class GmailPollerTests(unittest.TestCase):
             ],
             poller.page_calls,
         )
+
+    def test_provider_request_error_posts_to_slack_and_saves_error_state(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_file = Path(tmpdir) / ".env"
+            state_file = Path(tmpdir) / "state.json"
+            env_file.write_text(
+                "\n".join(
+                    [
+                        "SLACK_BOT_TOKEN=slack-test-token",
+                        "SLACK_CHANNEL_ID=C123",
+                        f"EMAIL_POLL_STATE_FILE={state_file}",
+                    ]
+                )
+                + "\n"
+            )
+            posted = []
+
+            def fake_post(token, channel, text):
+                posted.append({"token": token, "channel": channel, "text": text})
+                return {"ok": True}
+
+            original = dict(poll_email.PROVIDERS)
+            poll_email.PROVIDERS["failing"] = FailingPoller()
+            try:
+                with mock.patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "poll-email.py",
+                        "--env-file",
+                        str(env_file),
+                        "--provider",
+                        "failing",
+                    ],
+                ), mock.patch.object(poll_email, "post_slack_message", fake_post):
+                    poll_email.main()
+            finally:
+                poll_email.PROVIDERS.clear()
+                poll_email.PROVIDERS.update(original)
+
+            self.assertEqual(1, len(posted))
+            self.assertEqual("slack-test-token", posted[0]["token"])
+            self.assertEqual("C123", posted[0]["channel"])
+            self.assertIn("Priority Email provider request failed: failing", posted[0]["text"])
+            self.assertIn("status: 503", posted[0]["text"])
+            self.assertIn("access_token=%5Bredacted%5D", posted[0]["text"])
+            self.assertNotIn("secret-token", posted[0]["text"])
+
+            state = json.loads(state_file.read_text())
+            error = state["providers"]["failing"]["last_error"]
+            self.assertEqual("503", error["status"])
+            self.assertEqual("provider_unavailable", error["reason"])
+            self.assertIn("access_token=%5Bredacted%5D", error["url"])
+            self.assertNotIn("secret-token", error["url"])
+
+    def test_slack_error_notifications_can_be_disabled(self):
+        error = poll_email.EmailProviderRequestError(
+            method="GET",
+            url="https://mail.example.test/messages",
+            status=429,
+            reason="rate_limited",
+        )
+        with mock.patch.object(poll_email, "post_slack_message") as post:
+            posted = poll_email.notify_provider_error(
+                {
+                    "EMAIL_POLL_SLACK_ERROR_NOTIFICATIONS_ENABLED": "false",
+                    "SLACK_BOT_TOKEN": "slack-test-token",
+                    "SLACK_CHANNEL_ID": "C123",
+                },
+                "gmail",
+                error,
+            )
+        self.assertFalse(posted)
+        post.assert_not_called()
 
 
 if __name__ == "__main__":

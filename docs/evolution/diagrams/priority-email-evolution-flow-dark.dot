@@ -98,6 +98,12 @@ digraph priority_email_evolution_flow_dark {
     color="#93c5fd"
   ];
 
+  provider_errors [
+    label="Provider errors\nSlack diagnostics\nSanitized request details\nSaved error state\nWorker keeps polling",
+    fillcolor="#701a75",
+    color="#f0abfc"
+  ];
+
   next [
     label="Next implementation\nDurable DynamoDB checkpoints\nFilter matching pipeline\nSlack summaries from matches\nYahoo/iCloud pollers",
     fillcolor="#7f1d1d",
@@ -114,5 +120,6 @@ digraph priority_email_evolution_flow_dark {
   quality -> github;
   github -> aws_live;
   aws_live -> ci;
-  ci -> next;
+  ci -> provider_errors;
+  provider_errors -> next;
 }
