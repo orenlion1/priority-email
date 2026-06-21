@@ -12,6 +12,7 @@
 | 2026-06-21 | An Ensemble-style generated evolution flow diagram package was added. | `EVOLUTION.md`, `docs/evolution/README.md`, `docs/evolution/diagrams/` |
 | 2026-06-21 | External team engineering skills were imported into repo policy and applied to poller quality/security. | `AGENTS.md`, `tests/test_poll_email.py`, `scripts/poll-email.py`, `REQUIREMENTS.md` |
 | 2026-06-21 | GitHub publication created the private `orenlion1/priority-email` repo after verifying the staged set excludes local secrets, state, and real filter values. | `README.md`, `.gitignore`, `EVOLUTION.md` |
+| 2026-06-21 | The CI/CD automation skill was imported and applied as a secret-safe GitHub Actions quality gate. | `AGENTS.md`, `.github/workflows/ci.yml`, `scripts/ci/` |
 
 ## Current Policy Shape
 

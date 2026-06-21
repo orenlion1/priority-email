@@ -208,6 +208,19 @@ Key evidence:
 - First AWS poller log: Gmail initialization inspected 20 messages and wrote the checkpoint to `/tmp/email-poller-state.json`.
 - Storage finding: the Ensemble EKS cluster has no EBS CSI add-on installed, so PVC-backed file checkpoints were not available during this deploy. Durable checkpoints remain planned for DynamoDB.
 
+### June 21, 2026: Add CI/CD Automation Skill
+
+Priority Email imported the team CI/CD automation skill and added a GitHub Actions quality gate for every pull request and push to `main`.
+
+Key evidence:
+
+- `AGENTS.md`: imports the CI/CD automation skill and adds repo rules for CI quality gates and secret-safe automation.
+- `.github/workflows/ci.yml`: runs Python syntax checks, unit tests, shell syntax checks, Kubernetes static checks, secret/path scanning, and Docker build validation without production secrets.
+- `.github/dependabot.yml`: enables weekly dependency metadata updates for GitHub Actions and Docker.
+- `scripts/ci/secret-scan.py`: blocks committed secret-like values and forbidden local-only paths.
+- `scripts/ci/k8s-static-check.py`: checks the dedicated `priority-email` Kubernetes manifests for expected names, namespace isolation, ConfigMap/secret references, and hardening flags.
+- `REQUIREMENTS.md` and `README.md`: document CI expectations and local CI commands.
+
 ## Current Shape
 
 1. `REQUIREMENTS.md` defines the product, security, provider, and platform requirements.
@@ -224,3 +237,4 @@ Key evidence:
 12. `README.md` documents the current safe local workflow for the private GitHub repo.
 13. `EVOLUTION.md`, `docs/evolution/categories/`, and generated Graphviz flow diagrams preserve the project chronology.
 14. `Dockerfile`, AWS helper scripts, and Kubernetes manifests deploy the initial Gmail poller worker to AWS.
+15. GitHub Actions now enforces a secret-safe CI quality gate before changes reach `main`.

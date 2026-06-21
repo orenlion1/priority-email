@@ -92,6 +92,12 @@ digraph priority_email_evolution_flow_dark {
     color="#bef264"
   ];
 
+  ci [
+    label="CI automation\nGitHub Actions\nTests and syntax gates\nSecret/path scan\nDocker build check",
+    fillcolor="#1e3a8a",
+    color="#93c5fd"
+  ];
+
   next [
     label="Next implementation\nDurable DynamoDB checkpoints\nFilter matching pipeline\nSlack summaries from matches\nYahoo/iCloud pollers",
     fillcolor="#7f1d1d",
@@ -107,5 +113,6 @@ digraph priority_email_evolution_flow_dark {
   policy -> quality;
   quality -> github;
   github -> aws_live;
-  aws_live -> next;
+  aws_live -> ci;
+  ci -> next;
 }

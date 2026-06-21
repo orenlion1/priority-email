@@ -70,6 +70,9 @@ Priority Email helps users avoid missing important messages that are buried acro
 - Use test-driven development for new logic and bug fixes.
 - Code review must cover correctness, readability, architecture, security, and performance.
 - Security review must treat provider responses, email headers, Slack responses, config files, and local state as untrusted data.
+- CI must run on pull requests and pushes to `main`.
+- CI must verify Python syntax, unit tests, shell syntax, Kubernetes manifest safety checks, secret/path safety checks, and Docker image buildability.
+- CI must not require production secrets, real filter values, OAuth refresh tokens, Slack tokens, or AWS credentials.
 - Prefer standard-library and existing project utilities before adding dependencies.
 - Keep local verification commands documented and repeatable.
 - Current Python test command: `python3 -m unittest discover tests`.

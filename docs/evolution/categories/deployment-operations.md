@@ -26,7 +26,8 @@
 | 2026-06-21 | Priority Email adopted Ensemble's local AWS profile and account/region settings without copying static AWS keys. | `.env.example`, `REQUIREMENTS.md`, `DEPLOYMENT_PLAN.md` |
 | 2026-06-21 | Priority Email was packaged and pushed to AWS: ECR image, Secrets Manager runtime secret, ConfigMap filters, and a live EKS worker in the `priority-email` namespace. | `Dockerfile`, `infra/k8s/`, `scripts/aws/`, `DEPLOYMENT_PLAN.md` |
 | 2026-06-21 | PVC-backed checkpointing was attempted but deferred because the Ensemble EKS cluster has no EBS CSI add-on installed. Durable checkpoints remain planned for DynamoDB. | `DEPLOYMENT_PLAN.md`, `infra/k8s/deployment.yaml` |
+| 2026-06-21 | CI/CD automation was added for pull requests and pushes to `main`, with offline quality gates that do not require production secrets. | `.github/workflows/ci.yml`, `.github/dependabot.yml`, `scripts/ci/` |
 
 ## Current Operations Shape
 
-Priority Email now runs as a Kubernetes worker on the Ensemble EKS cluster while remaining isolated in its own namespace. Runtime secrets are synced to AWS Secrets Manager and a namespace-local Kubernetes secret. Filter files are mounted from a namespace-local ConfigMap. Durable runtime state is still planned for DynamoDB; the first worker deployment uses pod-local file state until the data-stack checkpoint backend is implemented.
+Priority Email now runs as a Kubernetes worker on the Ensemble EKS cluster while remaining isolated in its own namespace. Runtime secrets are synced to AWS Secrets Manager and a namespace-local Kubernetes secret. Filter files are mounted from a namespace-local ConfigMap. Durable runtime state is still planned for DynamoDB; the first worker deployment uses pod-local file state until the data-stack checkpoint backend is implemented. GitHub Actions enforces offline quality gates before source changes land on `main`.

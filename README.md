@@ -27,6 +27,18 @@ Use `--verbose` with the Gmail poller only when message metadata is needed for d
 python3 scripts/poll-email.py --provider gmail --verbose
 ```
 
+## CI Commands
+
+```bash
+python3 -m unittest discover tests
+python3 -m compileall scripts tests
+bash -n scripts/aws/ensure-ecr.sh scripts/aws/sync-runtime-secret.sh scripts/aws/build-and-push-image.sh scripts/aws/deploy-to-aws.sh scripts/kubernetes/apply-manifests.sh
+sh -n scripts/run-poller-loop.sh
+python3 scripts/ci/k8s-static-check.py
+python3 scripts/ci/secret-scan.py
+docker build --platform linux/amd64 -t priority-email-service:ci .
+```
+
 ## Secrets And Filters
 
 Do not commit local secrets or real filter values.

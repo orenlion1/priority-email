@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Python syntax
+        run: python -m compileall scripts tests
+
+      - name: Unit tests
+        run: python -m unittest discover tests
+
+      - name: Shell syntax
+        run: |
+          bash -n scripts/aws/ensure-ecr.sh scripts/aws/sync-runtime-secret.sh scripts/aws/build-and-push-image.sh scripts/aws/deploy-to-aws.sh scripts/kubernetes/apply-manifests.sh
+          sh -n scripts/run-poller-loop.sh
+
+      - name: Kubernetes static checks
+        run: python scripts/ci/k8s-static-check.py
+
+      - name: Secret and forbidden-path scan
+        run: python scripts/ci/secret-scan.py
+
+      - name: Docker build
+        run: docker build --platform linux/amd64 -t priority-email-service:ci .
