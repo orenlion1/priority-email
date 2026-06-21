@@ -1,0 +1,139 @@
+digraph priority_email_evolution_flow_dark {
+  graph [
+    rankdir=TB,
+    bgcolor="#111827",
+    pad="0.35",
+    nodesep="0.42",
+    ranksep="0.46",
+    fontname="Helvetica",
+    fontsize=28,
+    fontcolor="#f8fafc",
+    labelloc="t",
+    label="Priority Email Evolution Flow"
+  ];
+
+  node [
+    shape=box,
+    style="rounded,filled",
+    fontname="Helvetica",
+    fontsize=16,
+    margin="0.11,0.08",
+    width=3.45,
+    color="#cbd5e1",
+    fontcolor="#f8fafc"
+  ];
+
+  edge [
+    color="#94a3b8",
+    arrowsize=0.8,
+    penwidth=2,
+    fontname="Helvetica",
+    fontsize=12,
+    fontcolor="#e5e7eb"
+  ];
+
+  requirements [
+    label="Requirements\nGmail, Yahoo, iCloud\nSender filters\nSlack summaries\nPhone push target",
+    fillcolor="#0c4a6e",
+    color="#38bdf8"
+  ];
+
+  config [
+    label="Simple config\nLocal .env secrets\nFilter templates only\nLocal filter values ignored\nNewest-first entries",
+    fillcolor="#14532d",
+    color="#86efac"
+  ];
+
+  deployment [
+    label="AWS deployment plan\nexample-platform profile\nDedicated priority-email namespace\nDynamoDB checkpoints\nConfigMap filters",
+    fillcolor="#713f12",
+    color="#facc15"
+  ];
+
+  push [
+    label="Push provider choice\nAWS End User Messaging Push\nLow-cost AWS-native target\nMVP fallbacks documented",
+    fillcolor="#4c1d95",
+    color="#c4b5fd"
+  ];
+
+  gmail [
+    label="Gmail validated\nGoogle Cloud OAuth\nRefresh token in .env\nMetadata read succeeded\nPoller checkpointed",
+    fillcolor="#134e4a",
+    color="#5eead4"
+  ];
+
+  slack [
+    label="Slack validated\nPriority Email app\nchat:write scope\nBot invited to channel\nTest post succeeded",
+    fillcolor="#831843",
+    color="#f9a8d4"
+  ];
+
+  policy [
+    label="Repo memory\nGlobal EVOLUTION policy\nRepo AGENTS guidance\nCategory history\nGenerated flow diagrams",
+    fillcolor="#334155",
+    color="#cbd5e1"
+  ];
+
+  quality [
+    label="Team skills applied\nSpec-driven work\nTDD and unit tests\nSecurity hardening\nReview gates",
+    fillcolor="#075985",
+    color="#7dd3fc"
+  ];
+
+  github [
+    label="GitHub publication\nREADME landing page\nSafe staged set\nSecrets ignored\nTests pass",
+    fillcolor="#0f172a",
+    color="#e5e7eb"
+  ];
+
+  aws_live [
+    label="AWS worker live\nECR image pushed\nSecrets Manager runtime\nConfigMap filters\npriority-email namespace",
+    fillcolor="#365314",
+    color="#bef264"
+  ];
+
+  ci [
+    label="CI automation\nGitHub Actions\nTests and syntax gates\nSecret/path scan\nDocker build check",
+    fillcolor="#1e3a8a",
+    color="#93c5fd"
+  ];
+
+  provider_errors [
+    label="Provider errors\nSlack diagnostics\nSanitized request details\nSaved error state\nWorker keeps polling",
+    fillcolor="#701a75",
+    color="#f0abfc"
+  ];
+
+  delivery_flow [
+    label="Delivery flow\nPush to GitHub\nCI must pass\nDeploy same commit to AWS\nVerify live image",
+    fillcolor="#7c2d12",
+    color="#fdba74"
+  ];
+
+  public_ready [
+    label="Public readiness\nRedacted identifiers\nBlank env example\nExample image host\nLocal values ignored",
+    fillcolor="#334155",
+    color="#cbd5e1"
+  ];
+
+  next [
+    label="Next implementation\nDurable DynamoDB checkpoints\nFilter matching pipeline\nSlack summaries from matches\nYahoo/iCloud pollers",
+    fillcolor="#7f1d1d",
+    color="#fca5a5"
+  ];
+
+  requirements -> config;
+  config -> deployment;
+  deployment -> push;
+  deployment -> gmail;
+  gmail -> slack;
+  slack -> policy;
+  policy -> quality;
+  quality -> github;
+  github -> aws_live;
+  aws_live -> ci;
+  ci -> provider_errors;
+  provider_errors -> delivery_flow;
+  delivery_flow -> public_ready;
+  public_ready -> next;
+}

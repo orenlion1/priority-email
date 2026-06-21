@@ -1,0 +1,15 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+.git
+.state
+__pycache__
+*.pyc
+client_secret_*.apps.googleusercontent.com*
+filters/*.txt
+!filters/*.txt.template
+infra/k8s/*secret*.yaml
+*.tfvars
+*.tfstate
+*.tfstate.*
