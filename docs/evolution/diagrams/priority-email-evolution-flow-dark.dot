@@ -104,6 +104,12 @@ digraph priority_email_evolution_flow_dark {
     color="#f0abfc"
   ];
 
+  delivery_flow [
+    label="Delivery flow\nPush to GitHub\nCI must pass\nDeploy same commit to AWS\nVerify live image",
+    fillcolor="#7c2d12",
+    color="#fdba74"
+  ];
+
   next [
     label="Next implementation\nDurable DynamoDB checkpoints\nFilter matching pipeline\nSlack summaries from matches\nYahoo/iCloud pollers",
     fillcolor="#7f1d1d",
@@ -121,5 +127,6 @@ digraph priority_email_evolution_flow_dark {
   github -> aws_live;
   aws_live -> ci;
   ci -> provider_errors;
-  provider_errors -> next;
+  provider_errors -> delivery_flow;
+  delivery_flow -> next;
 }

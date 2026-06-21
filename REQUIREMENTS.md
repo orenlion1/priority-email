@@ -76,6 +76,8 @@ Priority Email helps users avoid missing important messages that are buried acro
 - CI must run on pull requests and pushes to `main`.
 - CI must verify Python syntax, unit tests, shell syntax, Kubernetes manifest safety checks, secret/path safety checks, and Docker image buildability.
 - CI must not require production secrets, real filter values, OAuth refresh tokens, Slack tokens, or AWS credentials.
+- Functional runtime changes must be pushed to GitHub and then deployed to AWS after CI passes, using the same Git commit SHA for the ECR image tag and live Kubernetes deployment.
+- GitHub Actions should use Node 24-compatible official actions where available.
 - Prefer standard-library and existing project utilities before adding dependencies.
 - Keep local verification commands documented and repeatable.
 - Current Python test command: `python3 -m unittest discover tests`.

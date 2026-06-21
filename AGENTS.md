@@ -24,6 +24,7 @@ Applied working rules:
 - Never print or commit tokens, OAuth client secrets, refresh tokens, real filter values, or `.env` contents.
 - Keep changes small and separately reviewable; do not mix large refactors with feature work.
 - Keep CI green on every pull request and push to `main`; quality gates should run before deployment.
+- For functional runtime changes, push the source commit to GitHub, wait for CI to pass, then deploy the same commit to AWS with `scripts/aws/deploy-to-aws.sh` and verify the live image.
 - Do not add CI steps that require production secrets. Deployment credentials belong in AWS/GitHub secrets or local operator profiles, not workflow files.
 
 ## Required Documentation Updates

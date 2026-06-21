@@ -245,6 +245,17 @@ Key evidence:
 - `tests/test_poll_email.py`: covers Slack error posting, redaction, saved error state, and the disable switch.
 - `REQUIREMENTS.md`: documents provider request error notification behavior and secret-safety requirements.
 
+### June 21, 2026: Standardize Functional Change Delivery
+
+Priority Email standardized the delivery flow for functional runtime changes: push the source commit to GitHub, wait for CI to pass, deploy the same commit to AWS, and verify the live EKS image tag.
+
+Key evidence:
+
+- `.github/workflows/ci.yml`: upgrades official GitHub Actions to Node 24-compatible major versions, `actions/checkout@v5` and `actions/setup-python@v6`.
+- `AGENTS.md`: records that functional runtime changes require both GitHub push and AWS deploy after CI passes.
+- `DEPLOYMENT_PLAN.md`: updates the deployment flow around `scripts/aws/deploy-to-aws.sh`, commit-tagged ECR images, and live image verification.
+- `REQUIREMENTS.md` and `README.md`: document that documentation-only changes may stop after GitHub/CI, while functional runtime changes continue through AWS.
+
 ## Current Shape
 
 1. `REQUIREMENTS.md` defines the product, security, provider, and platform requirements.
@@ -263,3 +274,4 @@ Key evidence:
 14. `Dockerfile`, AWS helper scripts, and Kubernetes manifests deploy the initial Gmail poller worker to AWS.
 15. GitHub Actions now enforces a secret-safe CI quality gate before changes reach `main`.
 16. Provider request failures are posted to Slack with sanitized error details.
+17. Functional runtime changes are delivered by pushing to GitHub, waiting for CI, and deploying the same commit to AWS.

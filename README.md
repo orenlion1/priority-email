@@ -59,6 +59,8 @@ scripts/aws/deploy-to-aws.sh
 
 The deploy script syncs `.env` to AWS Secrets Manager, builds and pushes the Docker image to ECR, mounts real local filter files as a Kubernetes ConfigMap, and applies the dedicated `priority-email` Kubernetes workload.
 
+For functional runtime changes, push the source commit to GitHub first, wait for CI to pass, then run the AWS deploy script from that same commit. Documentation-only changes do not require an AWS rollout.
+
 ## Documentation
 
 - [Requirements](REQUIREMENTS.md)

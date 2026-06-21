@@ -339,36 +339,45 @@ Follow the Ensemble observability convention:
 
 ## Phase 9: Deployment Flow
 
-Use the Ensemble deployment gate:
+Use the Ensemble deployment gate. Functional runtime changes must move through both GitHub and AWS: push the exact source commit to GitHub, wait for CI to pass, deploy that same commit to AWS, and verify that the live Kubernetes image tag matches the commit SHA. Documentation-only changes may stop after GitHub and CI.
 
 1. Run local tests for filter loading, matching, deduplication, and notification formatting.
 2. Build the container.
 3. Push the exact code revision to GitHub.
 4. Wait for CI to pass.
-5. Build and push the ECR image for the passing commit.
-6. Apply Terraform changes in stack order:
+5. For functional runtime changes, run:
+
+```bash
+scripts/aws/deploy-to-aws.sh
+```
+
+6. Confirm the deploy script built and pushed the ECR image for the passing commit.
+7. Apply Terraform changes in stack order when infrastructure changes require it:
    - data
    - workload-iam
-7. Update kubeconfig:
+8. Update kubeconfig when needed:
 
 ```bash
 aws eks update-kubeconfig --name ensemble-grafana --region us-east-1
 ```
 
-8. Apply Kubernetes manifests:
+9. Apply Kubernetes manifests manually only when not using the deploy script:
 
 ```bash
 kubectl apply -f infra/k8s/namespace.yaml
-kubectl apply -f infra/k8s/priority-email-service.yaml
-kubectl apply -f infra/k8s/network-policies.yaml
+kubectl apply -f infra/k8s/serviceaccount.yaml
+kubectl apply -f infra/k8s/network-policy.yaml
+kubectl apply -f infra/k8s/deployment.yaml
+kubectl apply -f infra/k8s/poddisruptionbudget.yaml
 ```
 
-9. Verify rollout:
+10. Verify rollout:
 
 ```bash
 kubectl rollout status deployment/priority-email-service -n priority-email
 kubectl logs -n priority-email deployment/priority-email-service
-kubectl get pods -n priority-email -l app=priority-email-service
+kubectl get deployment priority-email-service -n priority-email -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
+kubectl get pods -n priority-email -l app.kubernetes.io/name=priority-email-service
 ```
 
 ## Phase 10: Validation
