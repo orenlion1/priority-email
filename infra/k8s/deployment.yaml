@@ -42,6 +42,8 @@ spec:
           env:
             - name: EMAIL_POLL_STATE_FILE
               value: /tmp/email-poller-state.json
+            - name: EMAIL_POLL_LOG_FILE
+              value: /tmp/email-poller.log
             - name: EMAIL_POLL_INTERVAL_SECONDS
               value: "600"
             - name: OTEL_SERVICE_NAME

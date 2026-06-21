@@ -31,6 +31,8 @@ python3 scripts/poll-email.py --provider gmail --verbose
 
 Provider request failures are posted to Slack by default when `SLACK_BOT_TOKEN` and `SLACK_CHANNEL_ID` are configured. Set `EMAIL_POLL_SLACK_ERROR_NOTIFICATIONS_ENABLED=false` for local troubleshooting without Slack error posts.
 
+Each provider poll appends one JSON line to `EMAIL_POLL_LOG_FILE` for local audit/debugging. The Kubernetes default is `/tmp/email-poller.log`, and the local template default is `.state/email-poller.log`.
+
 For local OTEL testing, run an OTLP HTTP collector on `localhost:4318` or set `OTEL_EXPORTER_OTLP_ENDPOINT` to another collector. Telemetry export is fail-open: email polling continues if the collector is unavailable.
 
 ## CI Commands

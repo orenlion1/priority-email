@@ -634,6 +634,23 @@ def log_result(result, telemetry, *, verbose=False):
         )
 
 
+def append_poll_log(log_file, record, telemetry=None):
+    if not log_file:
+        return
+    try:
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        with log_file.open("a") as f:
+            f.write(json.dumps(record, sort_keys=True) + "\n")
+    except OSError as exc:
+        if telemetry:
+            telemetry.log(
+                "warning",
+                "poll_log_append_failed",
+                log_file=str(log_file),
+                reason=truncate(exc, 240),
+            )
+
+
 def main():
     parser = argparse.ArgumentParser(description="Poll configured email providers.")
     parser.add_argument("--env-file", type=Path, default=Path(".env"))
@@ -661,6 +678,7 @@ def main():
     state_file = args.state_file or Path(
         values.get("EMAIL_POLL_STATE_FILE", ".state/email-poller-state.json")
     )
+    poll_log_file = Path(values.get("EMAIL_POLL_LOG_FILE", ".state/email-poller.log"))
     state = load_state(state_file)
     provider_state = state.setdefault("providers", {})
 
@@ -704,6 +722,18 @@ def main():
                 provider=provider_name,
                 status="error",
             )
+            append_poll_log(
+                poll_log_file,
+                {
+                    "timestamp": utc_now_iso(),
+                    "event": "provider_poll",
+                    "provider": provider_name,
+                    "status": "error",
+                    "duration_ms": round(duration_ms, 3),
+                    "error": exc.summary(),
+                },
+                telemetry=telemetry,
+            )
             telemetry.end_span(
                 span,
                 status="error",
@@ -738,6 +768,22 @@ def main():
             mode=mode,
             messages=len(result.messages),
             initialized=result.initialized,
+        )
+        append_poll_log(
+            poll_log_file,
+            {
+                "timestamp": utc_now_iso(),
+                "event": "provider_poll",
+                "provider": provider_name,
+                "status": "ok",
+                "mode": mode,
+                "initialized": result.initialized,
+                "messages": len(result.messages),
+                "checkpoint_before": result.checkpoint_before or "none",
+                "checkpoint_after": result.checkpoint_after or "none",
+                "duration_ms": round(duration_ms, 3),
+            },
+            telemetry=telemetry,
         )
         log_result(result, telemetry, verbose=args.verbose)
 

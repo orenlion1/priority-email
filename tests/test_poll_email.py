@@ -145,7 +145,11 @@ class GmailPollerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             env_file = Path(tmpdir) / ".env"
             state_file = Path(tmpdir) / "state.json"
-            env_file.write_text(f"EMAIL_POLL_STATE_FILE={state_file}\n")
+            poll_log_file = Path(tmpdir) / "poll.log"
+            env_file.write_text(
+                f"EMAIL_POLL_STATE_FILE={state_file}\n"
+                f"EMAIL_POLL_LOG_FILE={poll_log_file}\n"
+            )
             stdout = io.StringIO()
 
             original = dict(poll_email.PROVIDERS)
@@ -177,6 +181,13 @@ class GmailPollerTests(unittest.TestCase):
                 all(record["service"] == "priority-email-service" for record in records)
             )
             self.assertIn("poll_result", {record["event"] for record in records})
+            poll_log_records = [
+                json.loads(line) for line in poll_log_file.read_text().splitlines()
+            ]
+            self.assertEqual(1, len(poll_log_records))
+            self.assertEqual("provider_poll", poll_log_records[0]["event"])
+            self.assertEqual("successful", poll_log_records[0]["provider"])
+            self.assertEqual("ok", poll_log_records[0]["status"])
 
     def test_otel_export_posts_trace_and_metric_payloads(self):
         telemetry = poll_email.Telemetry(
@@ -275,12 +286,14 @@ class GmailPollerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             env_file = Path(tmpdir) / ".env"
             state_file = Path(tmpdir) / "state.json"
+            poll_log_file = Path(tmpdir) / "poll.log"
             env_file.write_text(
                 "\n".join(
                     [
                         "SLACK_BOT_TOKEN=slack-test-token",
                         "SLACK_CHANNEL_ID=C123",
                         f"EMAIL_POLL_STATE_FILE={state_file}",
+                        f"EMAIL_POLL_LOG_FILE={poll_log_file}",
                     ]
                 )
                 + "\n"
@@ -324,6 +337,15 @@ class GmailPollerTests(unittest.TestCase):
             self.assertEqual("provider_unavailable", error["reason"])
             self.assertIn("access_token=%5Bredacted%5D", error["url"])
             self.assertNotIn("secret-token", error["url"])
+            poll_log_records = [
+                json.loads(line) for line in poll_log_file.read_text().splitlines()
+            ]
+            self.assertEqual(1, len(poll_log_records))
+            self.assertEqual("provider_poll", poll_log_records[0]["event"])
+            self.assertEqual("failing", poll_log_records[0]["provider"])
+            self.assertEqual("error", poll_log_records[0]["status"])
+            self.assertIn("access_token=%5Bredacted%5D", poll_log_records[0]["error"]["url"])
+            self.assertNotIn("secret-token", json.dumps(poll_log_records[0]))
 
     def test_slack_error_notifications_can_be_disabled(self):
         error = poll_email.EmailProviderRequestError(

@@ -49,6 +49,8 @@ def main():
         "priority-email-service",
         "OTEL_EXPORTER_OTLP_ENDPOINT",
         "http://alloy.priority-email.svc.cluster.local:4318",
+        "EMAIL_POLL_LOG_FILE",
+        "/tmp/email-poller.log",
     ]
     for fragment in required_fragments:
         if fragment not in deployment:

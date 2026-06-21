@@ -66,6 +66,7 @@ Priority Email helps users avoid missing important messages that are buried acro
 - The initial latest-message inspection limit must be configurable, with `20` as the default.
 - Incremental pollers must not skip older-but-still-new messages when a provider returns paginated results.
 - Poller logs must avoid printing email metadata unless explicitly requested for debugging or validation.
+- Each provider poll attempt must append one structured JSON line to the configured poll logfile without including OAuth secrets, authorization headers, full email content, or verbose email metadata.
 - If a request to an email provider fails, the poller must post an error notification to Slack with the provider name, sanitized request URL, HTTP status when available, reason, and truncated response details.
 - Provider error notifications must never include OAuth tokens, refresh tokens, client secrets, authorization headers, or full email content.
 - Provider error notifications should be configurable so they can be disabled for local troubleshooting.
