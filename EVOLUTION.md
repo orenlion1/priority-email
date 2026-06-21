@@ -269,7 +269,7 @@ Key evidence:
 - `scripts/poll-email.py`: writes one structured poll logfile entry per provider poll, using `INFO` for successful polls and `ERROR` for failed polls.
 - `scripts/poll-email.py`: emits provider failures at runtime `ERROR` level with sanitized request details, duration, Slack notification result, state/log file paths, and non-secret checkpoint state.
 - `scripts/run-poller-loop.sh`: suppresses wrapper poll-cycle INFO messages when the configured log level is `ERROR`.
-- `infra/k8s/deployment.yaml`: sets production `EMAIL_LOG_LEVEL=ERROR`.
+- `infra/k8s/deployment.yaml`: sets the production `EMAIL_LOG_LEVEL` runtime value.
 
 ### June 21, 2026: Standardize Functional Change Delivery
 

@@ -33,7 +33,7 @@ Provider request failures are posted to Slack by default when `SLACK_BOT_TOKEN` 
 
 Each provider poll appends one JSON line to `EMAIL_POLL_LOG_FILE` for local audit/debugging. The Kubernetes default is `/tmp/email-poller.log`, and the local template default is `.state/email-poller.log`. Audit entries include `level=INFO` for successful polls and `level=ERROR` for failed polls.
 
-Runtime stdout logging is controlled by `EMAIL_LOG_LEVEL`. Production defaults to `ERROR`, so successful poll-cycle logs are kept in the poll logfile while provider failures are emitted to stdout for Alloy/Grafana with sanitized request, duration, Slack notification, and checkpoint context.
+Runtime stdout logging is controlled by `EMAIL_LOG_LEVEL`. Production currently defaults to `INFO`, so successful poll-cycle logs are emitted to stdout for Alloy/Grafana and are also kept in the poll logfile. Provider failures emit `ERROR` logs with sanitized request, duration, Slack notification, and checkpoint context.
 
 For local OTEL testing, run an OTLP HTTP collector on `localhost:4318` or set `OTEL_EXPORTER_OTLP_ENDPOINT` to another collector. Telemetry export is fail-open: email polling continues if the collector is unavailable.
 

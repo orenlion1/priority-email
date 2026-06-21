@@ -52,7 +52,7 @@ def main():
         "EMAIL_POLL_LOG_FILE",
         "/tmp/email-poller.log",
         "EMAIL_LOG_LEVEL",
-        "ERROR",
+        "INFO",
     ]
     for fragment in required_fragments:
         if fragment not in deployment:
