@@ -39,8 +39,8 @@ Current AWS deployment status:
 - Runtime secret path: AWS Secrets Manager `priority-email/runtime`
 - Kubernetes secret: `priority-email/priority-email-secrets`
 - Kubernetes ConfigMap: `priority-email/priority-email-filters`
-- Deployed image tag: `e181bdb`
-- Image digest: `sha256:c8b074c30996f3ff8e0ce15bc1fd8d86dfc5380a5f7cf8a0572b3cb84fc7e8fa`
+- Deployed image tag: `c6dc0d4`
+- Image digest: `sha256:ca3f2cb8ea8726736a14bdfcebf10003c91fbb30bd89513bbcbe880f587d55e7`
 - Live worker status: deployed as one replica in `priority-email`.
 
 Current runtime limitation:
