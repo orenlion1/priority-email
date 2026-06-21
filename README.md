@@ -35,6 +35,12 @@ Each provider poll appends one JSON line to `EMAIL_POLL_LOG_FILE` for local audi
 
 Runtime stdout logging is controlled by `EMAIL_LOG_LEVEL`. Production currently defaults to `INFO`, so successful poll-cycle logs are emitted to stdout for Alloy/Grafana and are also kept in the poll logfile. Provider failures emit `ERROR` logs with sanitized request, duration, Slack notification, and checkpoint context.
 
+Provider request RED metrics are emitted for Gmail/Yahoo API and IMAP operations with `provider`, `operation`, `method`, `outcome`, `status`, and `reason` labels:
+
+- `priority_email_provider_requests_total`
+- `priority_email_provider_request_errors_total`
+- `priority_email_provider_request_duration_ms`
+
 For local OTEL testing, run an OTLP HTTP collector on `localhost:4318` or set `OTEL_EXPORTER_OTLP_ENDPOINT` to another collector. Telemetry export is fail-open: email polling continues if the collector is unavailable.
 
 ## CI Commands

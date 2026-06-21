@@ -143,6 +143,100 @@ def request_json(url, *, method="GET", data=None, headers=None):
         ) from exc
 
 
+def record_provider_request_metrics(
+    telemetry,
+    *,
+    provider,
+    operation,
+    method,
+    outcome,
+    duration_ms,
+    status="ok",
+    reason="none",
+):
+    if telemetry is None:
+        return
+    labels = {
+        "provider": provider,
+        "operation": operation,
+        "method": method,
+        "outcome": outcome,
+        "status": status or "unknown",
+        "reason": reason or "none",
+    }
+    telemetry.count("priority_email_provider_requests_total", **labels)
+    telemetry.gauge("priority_email_provider_request_duration_ms", duration_ms, **labels)
+    if outcome != "ok":
+        telemetry.count("priority_email_provider_request_errors_total", **labels)
+
+
+def metered_provider_request(
+    telemetry,
+    *,
+    provider,
+    operation,
+    url,
+    method="GET",
+    data=None,
+    headers=None,
+):
+    started = dt.datetime.now(dt.UTC)
+    try:
+        result = request_json(url, method=method, data=data, headers=headers)
+    except EmailProviderRequestError as exc:
+        duration_ms = (dt.datetime.now(dt.UTC) - started).total_seconds() * 1000
+        record_provider_request_metrics(
+            telemetry,
+            provider=provider,
+            operation=operation,
+            method=method,
+            outcome="error",
+            duration_ms=duration_ms,
+            status=exc.status or "unknown",
+            reason=exc.reason or "unknown",
+        )
+        raise
+    duration_ms = (dt.datetime.now(dt.UTC) - started).total_seconds() * 1000
+    record_provider_request_metrics(
+        telemetry,
+        provider=provider,
+        operation=operation,
+        method=method,
+        outcome="ok",
+        duration_ms=duration_ms,
+    )
+    return result
+
+
+def metered_imap_operation(telemetry, *, provider, operation, action):
+    started = dt.datetime.now(dt.UTC)
+    try:
+        result = action()
+    except EmailProviderRequestError as exc:
+        duration_ms = (dt.datetime.now(dt.UTC) - started).total_seconds() * 1000
+        record_provider_request_metrics(
+            telemetry,
+            provider=provider,
+            operation=operation,
+            method="IMAP",
+            outcome="error",
+            duration_ms=duration_ms,
+            status=exc.status or "unknown",
+            reason=exc.reason or "unknown",
+        )
+        raise
+    duration_ms = (dt.datetime.now(dt.UTC) - started).total_seconds() * 1000
+    record_provider_request_metrics(
+        telemetry,
+        provider=provider,
+        operation=operation,
+        method="IMAP",
+        outcome="ok",
+        duration_ms=duration_ms,
+    )
+    return result
+
+
 def post_slack_message(token, channel, text):
     payload = json.dumps({"channel": channel, "text": text}).encode()
     req = urllib.request.Request(
@@ -288,14 +382,14 @@ class PollResult:
 class BaseProviderPoller:
     name = ""
 
-    def poll(self, values, provider_state):
+    def poll(self, values, provider_state, telemetry=None):
         raise NotImplementedError
 
 
 class GmailPoller(BaseProviderPoller):
     name = "gmail"
 
-    def access_token(self, values):
+    def access_token(self, values, telemetry=None):
         body = urllib.parse.urlencode(
             {
                 "client_id": require(values, "GMAIL_CLIENT_ID"),
@@ -304,8 +398,11 @@ class GmailPoller(BaseProviderPoller):
                 "grant_type": "refresh_token",
             }
         ).encode()
-        token = request_json(
-            GMAIL_TOKEN_URL,
+        token = metered_provider_request(
+            telemetry,
+            provider=self.name,
+            operation="oauth_token",
+            url=GMAIL_TOKEN_URL,
             method="POST",
             data=body,
             headers={"Content-Type": "application/x-www-form-urlencoded"},
@@ -319,17 +416,27 @@ class GmailPoller(BaseProviderPoller):
             )
         return token["access_token"]
 
-    def list_messages_page(self, headers, max_results, checkpoint, page_token=None):
+    def list_messages_page(
+        self, headers, max_results, checkpoint, page_token=None, telemetry=None
+    ):
         params = {"maxResults": max_results, "q": "in:anywhere"}
         if checkpoint:
             params["q"] = f"in:anywhere after:{epoch_to_query_date(checkpoint)}"
         if page_token:
             params["pageToken"] = page_token
         url = f"{GMAIL_API}/messages?{urllib.parse.urlencode(params)}"
-        return request_json(url, headers=headers)
+        return metered_provider_request(
+            telemetry,
+            provider=self.name,
+            operation="list_messages",
+            url=url,
+            headers=headers,
+        )
 
-    def list_message_refs(self, headers, max_results, checkpoint, initialized):
-        page = self.list_messages_page(headers, max_results, checkpoint)
+    def list_message_refs(self, headers, max_results, checkpoint, initialized, telemetry=None):
+        page = self.list_messages_page(
+            headers, max_results, checkpoint, telemetry=telemetry
+        )
         messages = list(page.get("messages", []))
         if initialized:
             return messages
@@ -337,13 +444,17 @@ class GmailPoller(BaseProviderPoller):
         next_page_token = page.get("nextPageToken")
         while next_page_token:
             page = self.list_messages_page(
-                headers, max_results, checkpoint, page_token=next_page_token
+                headers,
+                max_results,
+                checkpoint,
+                page_token=next_page_token,
+                telemetry=telemetry,
             )
             messages.extend(page.get("messages", []))
             next_page_token = page.get("nextPageToken")
         return messages
 
-    def get_metadata(self, headers, message_id):
+    def get_metadata(self, headers, message_id, telemetry=None):
         url = (
             f"{GMAIL_API}/messages/{message_id}?"
             + urllib.parse.urlencode(
@@ -353,7 +464,13 @@ class GmailPoller(BaseProviderPoller):
                 ]
             )
         )
-        message = request_json(url, headers=headers)
+        message = metered_provider_request(
+            telemetry,
+            provider=self.name,
+            operation="get_message_metadata",
+            url=url,
+            headers=headers,
+        )
         header_values = {
             item.get("name", ""): item.get("value", "")
             for item in message.get("payload", {}).get("headers", [])
@@ -371,7 +488,7 @@ class GmailPoller(BaseProviderPoller):
             "date": parse_email_date(header_values.get("Date", "")),
         }
 
-    def poll(self, values, provider_state):
+    def poll(self, values, provider_state, telemetry=None):
         clear_provider_error(provider_state)
         checkpoint = provider_state.get("checkpoint_epoch")
         initialized = checkpoint is None
@@ -380,14 +497,16 @@ class GmailPoller(BaseProviderPoller):
             "EMAIL_POLL_INITIAL_MAX_MESSAGES" if initialized else "EMAIL_POLL_MAX_MESSAGES",
             20 if initialized else 50,
         )
-        token = self.access_token(values)
+        token = self.access_token(values, telemetry=telemetry)
         headers = {"Authorization": f"Bearer {token}"}
-        message_refs = self.list_message_refs(headers, max_results, checkpoint, initialized)
+        message_refs = self.list_message_refs(
+            headers, max_results, checkpoint, initialized, telemetry=telemetry
+        )
         messages = []
         max_epoch = checkpoint or 0
 
         for ref in message_refs:
-            metadata = self.get_metadata(headers, ref["id"])
+            metadata = self.get_metadata(headers, ref["id"], telemetry=telemetry)
             if checkpoint is not None and metadata["internal_epoch"] <= checkpoint:
                 continue
             messages.append(metadata)
@@ -407,7 +526,7 @@ class GmailPoller(BaseProviderPoller):
 class YahooPoller(BaseProviderPoller):
     name = "yahoo"
 
-    def access_token(self, values, provider_state):
+    def access_token(self, values, provider_state, telemetry=None):
         refresh_token = provider_state.get("refresh_token") or require(
             values, "YAHOO_REFRESH_TOKENS"
         )
@@ -420,8 +539,11 @@ class YahooPoller(BaseProviderPoller):
                 "grant_type": "refresh_token",
             }
         ).encode()
-        token = request_json(
-            YAHOO_TOKEN_URL,
+        token = metered_provider_request(
+            telemetry,
+            provider=self.name,
+            operation="oauth_token",
+            url=YAHOO_TOKEN_URL,
             method="POST",
             data=body,
             headers={"Content-Type": "application/x-www-form-urlencoded"},
@@ -437,14 +559,17 @@ class YahooPoller(BaseProviderPoller):
             provider_state["refresh_token"] = token["refresh_token"]
         return token["access_token"]
 
-    def mailbox_email(self, values, access_token=""):
+    def mailbox_email(self, values, access_token="", telemetry=None):
         configured = values.get("YAHOO_EMAIL") or values.get("YAHOO_EMAIL_ADDRESS", "")
         if configured:
             return configured
         if not access_token:
             raise SystemExit("Missing required .env value: YAHOO_EMAIL")
-        userinfo = request_json(
-            YAHOO_USERINFO_URL,
+        userinfo = metered_provider_request(
+            telemetry,
+            provider=self.name,
+            operation="userinfo",
+            url=YAHOO_USERINFO_URL,
             headers={"Authorization": f"Bearer {access_token}"},
         )
         email_address = userinfo.get("email", "")
@@ -533,7 +658,7 @@ class YahooPoller(BaseProviderPoller):
             )
         return metadata
 
-    def poll(self, values, provider_state):
+    def poll(self, values, provider_state, telemetry=None):
         clear_provider_error(provider_state)
         checkpoint_uid = provider_state.get("checkpoint_uid")
         initialized = checkpoint_uid is None
@@ -545,15 +670,38 @@ class YahooPoller(BaseProviderPoller):
         app_password = values.get("YAHOO_APP_PASSWORD", "")
         if app_password:
             email_address = self.mailbox_email(values)
-            conn = self.connect(values, email_address, app_password, "password")
+            conn = metered_imap_operation(
+                telemetry,
+                provider=self.name,
+                operation="imap_connect",
+                action=lambda: self.connect(values, email_address, app_password, "password"),
+            )
         else:
-            token = self.access_token(values, provider_state)
-            email_address = self.mailbox_email(values, token)
-            conn = self.connect(values, email_address, token, "xoauth2")
+            token = self.access_token(values, provider_state, telemetry=telemetry)
+            email_address = self.mailbox_email(values, token, telemetry=telemetry)
+            conn = metered_imap_operation(
+                telemetry,
+                provider=self.name,
+                operation="imap_connect",
+                action=lambda: self.connect(values, email_address, token, "xoauth2"),
+            )
         try:
-            uids = self.search_uids(conn, checkpoint_uid)
+            uids = metered_imap_operation(
+                telemetry,
+                provider=self.name,
+                operation="imap_search",
+                action=lambda: self.search_uids(conn, checkpoint_uid),
+            )
             selected_uids = uids[-max_results:] if initialized else uids
-            messages = [self.fetch_metadata(conn, uid) for uid in selected_uids]
+            messages = [
+                metered_imap_operation(
+                    telemetry,
+                    provider=self.name,
+                    operation="imap_fetch_metadata",
+                    action=lambda uid=uid: self.fetch_metadata(conn, uid),
+                )
+                for uid in selected_uids
+            ]
         finally:
             try:
                 conn.logout()
@@ -580,7 +728,7 @@ class StubProviderPoller(BaseProviderPoller):
     def __init__(self, name):
         self.name = name
 
-    def poll(self, values, provider_state):
+    def poll(self, values, provider_state, telemetry=None):
         clear_provider_error(provider_state)
         provider_state["last_polled_at"] = utc_now_iso()
         provider_state["status"] = "not_implemented"
@@ -709,7 +857,7 @@ def main():
         span = telemetry.start_span("email_provider_poll", provider=provider_name)
         started = dt.datetime.now(dt.UTC)
         try:
-            result = poller.poll(values, current)
+            result = poller.poll(values, current, telemetry=telemetry)
         except EmailProviderRequestError as exc:
             record_provider_error(current, exc)
             posted = notify_provider_error(values, provider_name, exc, telemetry=telemetry)

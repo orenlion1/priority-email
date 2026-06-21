@@ -271,6 +271,16 @@ Key evidence:
 - `scripts/run-poller-loop.sh`: suppresses wrapper poll-cycle INFO messages when the configured log level is `ERROR`.
 - `infra/k8s/deployment.yaml`: sets the production `EMAIL_LOG_LEVEL` runtime value.
 
+### June 21, 2026: Add Provider Request RED Metrics
+
+Priority Email added request-level rate, error, and duration metrics for email provider interactions.
+
+Key evidence:
+
+- `scripts/poll-email.py`: wraps Gmail API, Yahoo API, and Yahoo IMAP operations with provider request metrics.
+- `scripts/poll-email.py`: emits `priority_email_provider_requests_total`, `priority_email_provider_request_errors_total`, and `priority_email_provider_request_duration_ms`.
+- `tests/test_poll_email.py`: verifies provider request metrics include provider, operation, method, outcome, status, and reason labels without leaking request secrets.
+
 ### June 21, 2026: Standardize Functional Change Delivery
 
 Priority Email standardized the delivery flow for functional runtime changes: push the source commit to GitHub, wait for CI to pass, deploy the same commit to AWS, and verify the live EKS image tag.

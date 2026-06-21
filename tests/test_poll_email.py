@@ -21,10 +21,12 @@ class FakeGmailPoller(poll_email.GmailPoller):
         self.metadata = metadata
         self.page_calls = []
 
-    def access_token(self, values):
+    def access_token(self, values, telemetry=None):
         return "fake-token"
 
-    def list_messages_page(self, headers, max_results, checkpoint, page_token=None):
+    def list_messages_page(
+        self, headers, max_results, checkpoint, page_token=None, telemetry=None
+    ):
         self.page_calls.append(
             {
                 "max_results": max_results,
@@ -34,7 +36,7 @@ class FakeGmailPoller(poll_email.GmailPoller):
         )
         return self.pages.get(page_token)
 
-    def get_metadata(self, headers, message_id):
+    def get_metadata(self, headers, message_id, telemetry=None):
         return self.metadata[message_id]
 
 
@@ -53,7 +55,7 @@ def message(message_id, epoch):
 class FailingPoller(poll_email.BaseProviderPoller):
     name = "failing"
 
-    def poll(self, values, provider_state):
+    def poll(self, values, provider_state, telemetry=None):
         raise poll_email.EmailProviderRequestError(
             method="GET",
             url="https://mail.example.test/messages?access_token=secret-token&page=1",
@@ -66,7 +68,7 @@ class FailingPoller(poll_email.BaseProviderPoller):
 class SuccessfulPoller(poll_email.BaseProviderPoller):
     name = "successful"
 
-    def poll(self, values, provider_state):
+    def poll(self, values, provider_state, telemetry=None):
         provider_state["checkpoint_epoch"] = 123
         provider_state["last_polled_at"] = poll_email.utc_now_iso()
         return poll_email.PollResult(
@@ -129,11 +131,11 @@ class FakeYahooPoller(poll_email.YahooPoller):
     def __init__(self, conn):
         self.conn = conn
 
-    def access_token(self, values, provider_state):
+    def access_token(self, values, provider_state, telemetry=None):
         provider_state["refresh_token"] = "rotated-refresh-token"
         return "fake-yahoo-token"
 
-    def mailbox_email(self, values, access_token=""):
+    def mailbox_email(self, values, access_token="", telemetry=None):
         return "user@yahoo.example"
 
     def connect(self, values, email_address, credential, auth_method):
@@ -265,6 +267,71 @@ class GmailPollerTests(unittest.TestCase):
                 "stringValue"
             ],
         )
+
+    def test_provider_request_metrics_include_provider_operation_and_outcome(self):
+        telemetry = poll_email.Telemetry({})
+
+        with mock.patch.object(poll_email, "request_json", return_value={"ok": True}):
+            result = poll_email.metered_provider_request(
+                telemetry,
+                provider="gmail",
+                operation="list_messages",
+                url="https://mail.example.test/messages",
+            )
+
+        self.assertEqual({"ok": True}, result)
+        metric_names = [item[1] for item in telemetry.metrics]
+        self.assertIn("priority_email_provider_requests_total", metric_names)
+        self.assertIn("priority_email_provider_request_duration_ms", metric_names)
+        request_metric = [
+            item
+            for item in telemetry.metrics
+            if item[1] == "priority_email_provider_requests_total"
+        ][0]
+        self.assertEqual(
+            {
+                "provider": "gmail",
+                "operation": "list_messages",
+                "method": "GET",
+                "outcome": "ok",
+                "status": "ok",
+                "reason": "none",
+            },
+            request_metric[3],
+        )
+
+    def test_provider_request_error_metrics_include_provider_and_reason(self):
+        telemetry = poll_email.Telemetry({})
+        error = poll_email.EmailProviderRequestError(
+            method="GET",
+            url="https://mail.example.test/messages?access_token=secret-token",
+            status=503,
+            reason="provider_unavailable",
+        )
+
+        with mock.patch.object(poll_email, "request_json", side_effect=error):
+            with self.assertRaises(poll_email.EmailProviderRequestError):
+                poll_email.metered_provider_request(
+                    telemetry,
+                    provider="gmail",
+                    operation="list_messages",
+                    url="https://mail.example.test/messages?access_token=secret-token",
+                )
+
+        metric_names = [item[1] for item in telemetry.metrics]
+        self.assertIn("priority_email_provider_requests_total", metric_names)
+        self.assertIn("priority_email_provider_request_errors_total", metric_names)
+        self.assertIn("priority_email_provider_request_duration_ms", metric_names)
+        error_metric = [
+            item
+            for item in telemetry.metrics
+            if item[1] == "priority_email_provider_request_errors_total"
+        ][0]
+        self.assertEqual("gmail", error_metric[3]["provider"])
+        self.assertEqual("list_messages", error_metric[3]["operation"])
+        self.assertEqual("error", error_metric[3]["outcome"])
+        self.assertEqual("503", error_metric[3]["status"])
+        self.assertEqual("provider_unavailable", error_metric[3]["reason"])
 
     def test_initial_poll_inspects_only_first_page_with_configured_limit(self):
         poller = FakeGmailPoller(
