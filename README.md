@@ -8,6 +8,7 @@ Priority Email monitors connected mail accounts for important sender matches, th
 - Gmail polling is implemented with checkpointed incremental reads.
 - Yahoo Mail and Apple iCloud Mail pollers are stubbed for future implementation.
 - Slack posting is validated through the `Priority Email` Slack app.
+- Incremental messages matching sender-name, exact email, or domain filters post Slack summaries when `SLACK_BOT_TOKEN` and `SLACK_CHANNEL_ID` are configured.
 - AWS deployment is live in the reference AWS account through the `example-platform` AWS CLI profile.
 - The live Kubernetes worker runs in the dedicated `priority-email` namespace.
 - Observability is standardized on Grafana Labs tooling and services.
@@ -30,6 +31,8 @@ python3 scripts/poll-email.py --provider gmail --verbose
 ```
 
 Provider request failures are posted to Slack by default when `SLACK_BOT_TOKEN` and `SLACK_CHANNEL_ID` are configured. Set `EMAIL_POLL_SLACK_ERROR_NOTIFICATIONS_ENABLED=false` for local troubleshooting without Slack error posts.
+
+Matched email summaries are posted to Slack by default when `EMAIL_POLL_SLACK_SUMMARIES_ENABLED=true`. Provider initialization skips Slack summaries unless `EMAIL_NOTIFY_ON_INITIALIZATION=true`, which avoids reposting the latest inspected messages after cold starts.
 
 Each provider poll appends one JSON line to `EMAIL_POLL_LOG_FILE` for local audit/debugging. The Kubernetes default is `/tmp/email-poller.log`, and the local template default is `.state/email-poller.log`. Audit entries include `level=INFO` for successful polls and `level=ERROR` for failed polls.
 

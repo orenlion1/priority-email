@@ -23,6 +23,11 @@ YAHOO_USERINFO_URL = "https://api.login.yahoo.com/openid/v1/userinfo"
 METADATA_HEADERS = ["From", "Subject", "Date"]
 SLACK_POST_MESSAGE_URL = "https://slack.com/api/chat.postMessage"
 SENSITIVE_QUERY_KEYS = {"access_token", "client_secret", "code", "key", "password", "token"}
+FILTER_FILE_NAMES = {
+    "domain": "domain-filters.txt",
+    "email_address": "email-address-filters.txt",
+    "sender_name": "sender-name-filters.txt",
+}
 
 
 def load_env(path):
@@ -72,6 +77,10 @@ def truncate(value, limit=1200):
     if len(text) <= limit:
         return text
     return text[: limit - 3] + "..."
+
+
+def normalize_filter_line(value):
+    return " ".join(str(value).strip().split())
 
 
 def sanitize_url(url):
@@ -335,6 +344,207 @@ def post_slack_message(token, channel, text, telemetry=None):
             reason=reason,
         )
     return response
+
+
+def load_filter_values(path, *, normalize=lambda value: value.lower()):
+    if not path.exists():
+        return []
+    values = []
+    seen = set()
+    for raw in path.read_text().splitlines():
+        item = normalize_filter_line(raw)
+        if not item or item.startswith("#"):
+            continue
+        item = normalize(item)
+        if not item or item in seen:
+            continue
+        values.append(item)
+        seen.add(item)
+    return values
+
+
+def normalize_domain_filter(value):
+    return normalize_filter_line(value).lower().removeprefix("@")
+
+
+def load_sender_filters(values):
+    filter_dir = Path(values.get("EMAIL_FILTER_DIR", "filters"))
+    return {
+        "domain": load_filter_values(
+            filter_dir / FILTER_FILE_NAMES["domain"],
+            normalize=normalize_domain_filter,
+        ),
+        "email_address": load_filter_values(
+            filter_dir / FILTER_FILE_NAMES["email_address"],
+            normalize=lambda value: normalize_filter_line(value).lower(),
+        ),
+        "sender_name": load_filter_values(
+            filter_dir / FILTER_FILE_NAMES["sender_name"],
+            normalize=lambda value: normalize_filter_line(value).lower(),
+        ),
+    }
+
+
+def parse_sender(from_header):
+    display_name, address = email.utils.parseaddr(from_header or "")
+    display_name = normalize_filter_line(display_name)
+    address = normalize_filter_line(address or from_header).lower()
+    if not display_name and address and "@" not in address:
+        display_name = normalize_filter_line(from_header)
+        address = ""
+    domain = address.rsplit("@", 1)[1] if "@" in address else ""
+    return display_name, address, domain
+
+
+def matching_filters(message, filters):
+    display_name, address, domain = parse_sender(message.get("from", ""))
+    display_name_key = display_name.lower()
+    matches = []
+    if domain:
+        for value in filters.get("domain", []):
+            if domain == value:
+                matches.append({"type": "domain", "value": value})
+    if address:
+        for value in filters.get("email_address", []):
+            if address == value:
+                matches.append({"type": "email_address", "value": value})
+    if display_name_key:
+        for value in filters.get("sender_name", []):
+            if display_name_key == value:
+                matches.append({"type": "sender_name", "value": value})
+    return matches
+
+
+def provider_message_link(provider, message):
+    if provider == "gmail" and message.get("thread_id"):
+        return f"https://mail.google.com/mail/u/0/#all/{urllib.parse.quote(message['thread_id'])}"
+    return ""
+
+
+def format_filter_match(match):
+    if match["type"] == "domain":
+        return f"domain:{match['value']}"
+    if match["type"] == "email_address":
+        return f"email:{match['value']}"
+    return f"sender:{match['value']}"
+
+
+def format_matched_email_message(provider, message, matches):
+    display_name, address, _domain = parse_sender(message.get("from", ""))
+    sender = display_name
+    if address and display_name:
+        sender = f"{display_name} <{address}>"
+    elif address:
+        sender = address
+    link = provider_message_link(provider, message)
+    lines = [
+        "Priority Email match",
+        f"provider: {provider}",
+        f"sender: {sender or 'unknown'}",
+        f"subject: {truncate(message.get('subject', '(no subject)'), 240)}",
+        f"received: {message.get('internal_time') or message.get('date') or 'unknown'}",
+        "matched: " + ", ".join(format_filter_match(match) for match in matches),
+    ]
+    if link:
+        lines.append(f"link: {link}")
+    else:
+        lines.append(f"message_id: {message.get('id', 'unknown')}")
+    return "\n".join(lines)
+
+
+def message_notification_key(provider, message):
+    return f"{provider}:{message.get('id', '')}"
+
+
+def trim_notified_message_keys(provider_state, limit):
+    keys = provider_state.get("notified_message_keys", [])
+    if len(keys) > limit:
+        provider_state["notified_message_keys"] = keys[-limit:]
+
+
+def notify_matched_messages(values, provider_state, result, filters, telemetry=None):
+    if result.initialized and not bool_config(values, "EMAIL_NOTIFY_ON_INITIALIZATION", False):
+        if telemetry:
+            telemetry.count(
+                "priority_email_matched_messages_total",
+                0,
+                provider=result.provider,
+                result="skipped_initialization",
+            )
+        return {"matched": 0, "posted": 0, "skipped": len(result.messages), "failed": 0}
+    if not bool_config(values, "EMAIL_POLL_SLACK_SUMMARIES_ENABLED", True):
+        return {"matched": 0, "posted": 0, "skipped": 0, "failed": 0}
+    token = values.get("SLACK_BOT_TOKEN", "")
+    channel = values.get("SLACK_CHANNEL_ID", "")
+    if not token or not channel:
+        if telemetry:
+            telemetry.log(
+                "warning",
+                "matched_email_slack_skipped",
+                provider=result.provider,
+                reason="missing_slack_config",
+            )
+        return {"matched": 0, "posted": 0, "skipped": 0, "failed": 0}
+
+    notified = provider_state.setdefault("notified_message_keys", [])
+    notified_set = set(notified)
+    history_limit = int_config(values, "EMAIL_NOTIFIED_MESSAGE_HISTORY_LIMIT", 1000)
+    counts = {"matched": 0, "posted": 0, "skipped": 0, "failed": 0}
+
+    for message in result.messages:
+        matches = matching_filters(message, filters)
+        if not matches:
+            continue
+        counts["matched"] += 1
+        key = message_notification_key(result.provider, message)
+        if key in notified_set:
+            counts["skipped"] += 1
+            continue
+        try:
+            post_slack_message(
+                token,
+                channel,
+                format_matched_email_message(result.provider, message, matches),
+                telemetry=telemetry,
+            )
+        except Exception as exc:
+            counts["failed"] += 1
+            if telemetry:
+                telemetry.log(
+                    "error",
+                    "matched_email_slack_failed",
+                    provider=result.provider,
+                    message_id=message.get("id", ""),
+                    reason=truncate(exc, 240),
+                )
+            continue
+        notified.append(key)
+        notified_set.add(key)
+        counts["posted"] += 1
+        if telemetry:
+            telemetry.log(
+                "info",
+                "matched_email_slack_posted",
+                provider=result.provider,
+                message_id=message.get("id", ""),
+                match_count=len(matches),
+            )
+
+    trim_notified_message_keys(provider_state, history_limit)
+    if telemetry:
+        for status, count in (
+            ("matched", counts["matched"]),
+            ("posted", counts["posted"]),
+            ("skipped", counts["skipped"]),
+            ("failed", counts["failed"]),
+        ):
+            telemetry.count(
+                "priority_email_matched_messages_total",
+                count,
+                provider=result.provider,
+                result=status,
+            )
+    return counts
 
 
 def format_provider_error_message(provider_name, error):
@@ -933,6 +1143,7 @@ def main():
     poll_log_file = Path(values.get("EMAIL_POLL_LOG_FILE", ".state/email-poller.log"))
     state = load_state(state_file)
     provider_state = state.setdefault("providers", {})
+    sender_filters = load_sender_filters(values)
 
     for provider_name in enabled_providers(values, args.provider):
         poller = PROVIDERS.get(provider_name)
@@ -1020,24 +1231,37 @@ def main():
             provider=provider_name,
             status="ok",
         )
+        notification_counts = notify_matched_messages(
+            values,
+            current,
+            result,
+            sender_filters,
+            telemetry=telemetry,
+        )
         telemetry.end_span(
             span,
             status="ok",
             mode=mode,
             messages=len(result.messages),
             initialized=result.initialized,
+            matched_messages=notification_counts["matched"],
+            slack_posts=notification_counts["posted"],
+            slack_post_failures=notification_counts["failed"],
         )
         append_poll_log(
             poll_log_file,
-                {
-                    "timestamp": utc_now_iso(),
-                    "level": "INFO",
-                    "event": "provider_poll",
+            {
+                "timestamp": utc_now_iso(),
+                "level": "INFO",
+                "event": "provider_poll",
                 "provider": provider_name,
                 "status": "ok",
                 "mode": mode,
                 "initialized": result.initialized,
                 "messages": len(result.messages),
+                "matched_messages": notification_counts["matched"],
+                "slack_posts": notification_counts["posted"],
+                "slack_post_failures": notification_counts["failed"],
                 "checkpoint_before": result.checkpoint_before or "none",
                 "checkpoint_after": result.checkpoint_after or "none",
                 "duration_ms": round(duration_ms, 3),

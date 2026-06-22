@@ -601,6 +601,141 @@ class GmailPollerTests(unittest.TestCase):
         self.assertEqual("not_in_channel", error_metric[3]["reason"])
         self.assertNotIn("slack-secret-token", json.dumps(telemetry.metrics))
 
+    def test_sender_filters_match_domain_email_and_display_name(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            filter_dir = Path(tmpdir)
+            (filter_dir / "domain-filters.txt").write_text("@Example.com\n# old\n")
+            (filter_dir / "email-address-filters.txt").write_text(
+                "alerts@Example.com\n"
+            )
+            (filter_dir / "sender-name-filters.txt").write_text("Jane Smith\n")
+
+            filters = poll_email.load_sender_filters({"EMAIL_FILTER_DIR": str(filter_dir)})
+
+        domain_matches = poll_email.matching_filters(
+            {"from": "Other <person@example.com>"},
+            filters,
+        )
+        email_matches = poll_email.matching_filters(
+            {"from": "Alerts <alerts@example.com>"},
+            filters,
+        )
+        name_matches = poll_email.matching_filters(
+            {"from": "Jane Smith <jane@other.example>"},
+            filters,
+        )
+
+        self.assertEqual([{"type": "domain", "value": "example.com"}], domain_matches)
+        self.assertEqual(
+            [
+                {"type": "domain", "value": "example.com"},
+                {"type": "email_address", "value": "alerts@example.com"},
+            ],
+            email_matches,
+        )
+        self.assertEqual([{"type": "sender_name", "value": "jane smith"}], name_matches)
+
+    def test_initialization_skips_matched_message_slack_by_default(self):
+        telemetry = poll_email.Telemetry({})
+        state = {}
+        result = poll_email.PollResult(
+            "gmail",
+            True,
+            None,
+            123,
+            [
+                {
+                    **message("m1", 123),
+                    "from": "Honeycomb <news@honeycomb.io>",
+                    "subject": "Welcome",
+                }
+            ],
+        )
+
+        with mock.patch.object(poll_email, "post_slack_message") as post:
+            counts = poll_email.notify_matched_messages(
+                {
+                    "SLACK_BOT_TOKEN": "slack-secret-token",
+                    "SLACK_CHANNEL_ID": "C123",
+                },
+                state,
+                result,
+                {"domain": ["honeycomb.io"], "email_address": [], "sender_name": []},
+                telemetry=telemetry,
+            )
+
+        self.assertEqual({"matched": 0, "posted": 0, "skipped": 1, "failed": 0}, counts)
+        post.assert_not_called()
+        self.assertNotIn("notified_message_keys", state)
+
+    def test_incremental_matched_message_posts_slack_once_and_dedupes(self):
+        telemetry = poll_email.Telemetry({})
+        state = {}
+        posted = []
+        result = poll_email.PollResult(
+            "gmail",
+            False,
+            100,
+            200,
+            [
+                {
+                    **message("m1", 200),
+                    "thread_id": "thread abc",
+                    "from": "Honeycomb <news@honeycomb.io>",
+                    "subject": "Important update",
+                    "internal_time": "2026-06-22T20:00:00+00:00",
+                }
+            ],
+        )
+
+        def fake_post(token, channel, text, telemetry=None):
+            posted.append({"token": token, "channel": channel, "text": text})
+            return {"ok": True}
+
+        with mock.patch.object(poll_email, "post_slack_message", fake_post):
+            first_counts = poll_email.notify_matched_messages(
+                {
+                    "SLACK_BOT_TOKEN": "slack-secret-token",
+                    "SLACK_CHANNEL_ID": "C123",
+                },
+                state,
+                result,
+                {
+                    "domain": ["honeycomb.io"],
+                    "email_address": ["news@honeycomb.io"],
+                    "sender_name": [],
+                },
+                telemetry=telemetry,
+            )
+            second_counts = poll_email.notify_matched_messages(
+                {
+                    "SLACK_BOT_TOKEN": "slack-secret-token",
+                    "SLACK_CHANNEL_ID": "C123",
+                },
+                state,
+                result,
+                {
+                    "domain": ["honeycomb.io"],
+                    "email_address": ["news@honeycomb.io"],
+                    "sender_name": [],
+                },
+                telemetry=telemetry,
+            )
+
+        self.assertEqual({"matched": 1, "posted": 1, "skipped": 0, "failed": 0}, first_counts)
+        self.assertEqual({"matched": 1, "posted": 0, "skipped": 1, "failed": 0}, second_counts)
+        self.assertEqual(["gmail:m1"], state["notified_message_keys"])
+        self.assertEqual(1, len(posted))
+        self.assertEqual("C123", posted[0]["channel"])
+        self.assertIn("Priority Email match", posted[0]["text"])
+        self.assertIn("provider: gmail", posted[0]["text"])
+        self.assertIn("sender: Honeycomb <news@honeycomb.io>", posted[0]["text"])
+        self.assertIn("subject: Important update", posted[0]["text"])
+        self.assertIn("domain:honeycomb.io", posted[0]["text"])
+        self.assertIn("email:news@honeycomb.io", posted[0]["text"])
+        self.assertIn("https://mail.google.com/mail/u/0/#all/thread%20abc", posted[0]["text"])
+        self.assertNotIn("slack-secret-token", json.dumps(telemetry.metrics))
+
 
 class YahooPollerTests(unittest.TestCase):
     def test_initial_poll_inspects_latest_configured_uids(self):

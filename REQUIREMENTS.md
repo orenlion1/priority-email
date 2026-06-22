@@ -25,6 +25,8 @@ Priority Email helps users avoid missing important messages that are buried acro
 - Yahoo Mail and Apple iCloud Mail pollers are planned and currently stubbed.
 - Slack app `Priority Email` is installed in workspace `example-platform` with `chat:write`.
 - Slack posting validation has succeeded through `scripts/test-slack-message.py`.
+- Slack summaries are implemented for incremental messages that match sender-name, exact email address, or domain filters.
+- Provider initialization skips matched-message Slack summaries by default to avoid reposting the latest inspected messages after cold starts.
 - Priority Email emits structured JSON logs with `service=priority-email-service`.
 - Priority Email emits OTLP metrics and traces for provider poll cycles.
 - Priority Email Kubernetes manifests include a dedicated namespace-local Grafana Alloy collector that receives OTLP and collects pod logs from the `priority-email` namespace.
@@ -188,6 +190,8 @@ The Slack summary should include:
 - Direct link to the email when supported by the provider.
 
 The system must support selecting a Slack workspace and channel during setup.
+
+Provider initialization should not post matched-message Slack summaries by default, because initialization is a checkpoint/bootstrap step rather than a new-message notification flow. Operators may explicitly enable initialization summaries for backfill validation.
 
 ## Email Link Requirements
 

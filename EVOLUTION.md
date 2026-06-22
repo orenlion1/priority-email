@@ -291,6 +291,17 @@ Key evidence:
 - `scripts/poll-email.py`: records Slack `chat.postMessage` success, HTTP failures, transport failures, invalid JSON responses, and Slack app-level errors such as `not_in_channel` without exposing Slack tokens.
 - `tests/test_poll_email.py`: verifies generic dependency metrics for provider calls and Slack calls, including Slack app-level errors.
 
+### June 22, 2026: Add Matched Email Slack Summaries
+
+Priority Email implemented the missing path from sender filters to Slack summaries for newly polled messages.
+
+Key evidence:
+
+- `scripts/poll-email.py`: loads domain, exact email address, and sender-name filters from the mounted filter files.
+- `scripts/poll-email.py`: matches sender metadata case-insensitively, posts one Slack summary per matched message, and deduplicates posts by provider/message ID within runtime state.
+- `scripts/poll-email.py`: skips matched-message Slack summaries during provider initialization by default to avoid reposting the latest inspected messages after pod cold starts while state is still local to the pod.
+- `tests/test_poll_email.py`: verifies filter matching, initialization skip behavior, Slack summary formatting, and duplicate-post suppression.
+
 ### June 21, 2026: Standardize Functional Change Delivery
 
 Priority Email standardized the delivery flow for functional runtime changes: push the source commit to GitHub, wait for CI to pass, deploy the same commit to AWS, and verify the live EKS image tag.
