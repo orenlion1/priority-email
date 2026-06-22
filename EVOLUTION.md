@@ -206,7 +206,7 @@ Key evidence:
 - ECR image: `<aws-account-id>.dkr.ecr.<aws-region>.amazonaws.com/priority-email-service:<image-tag>`, digest `<image-digest>`.
 - Kubernetes: `priority-email-service` rolled out successfully with one running replica.
 - First AWS poller log: Gmail initialization inspected 20 messages and wrote the checkpoint to `/tmp/email-poller-state.json`.
-- Storage finding: the reference EKS cluster has no EBS CSI add-on installed, so PVC-backed file checkpoints were not available during this deploy. Durable checkpoints remain planned for DynamoDB.
+- Storage finding: PVC-backed file checkpoints were not available during this first deploy, so durable checkpoints were temporarily deferred.
 
 Hard parts encountered:
 
@@ -216,7 +216,7 @@ Hard parts encountered:
 - Filter values had to stay uncommitted locally while still reaching the cluster, so the Kubernetes deploy script creates `priority-email-filters` from ignored `filters/*.txt` files instead of committed templates.
 - The first image was deployed as `latest`, then the workflow was tightened to pin Kubernetes to the immutable Git SHA image tag so source, ECR, and the live deployment can be correlated.
 - A deploy-script bug captured verbose Docker push output as part of the image URI. The live deployment stayed healthy on the prior image, the bad intermediate ReplicaSet was corrected, and the script now captures only the final image URI line before calling `kubectl set image`.
-- PVC-backed file checkpointing looked attractive for preserving poller state across pod restarts, but the reference EKS cluster has no EBS CSI add-on installed. The PVC remained pending, so the deployment was restored to pod-local `/tmp` state and durable checkpoints were deferred to the planned DynamoDB backend.
+- PVC-backed file checkpointing looked attractive for preserving poller state across pod restarts, but the initial volume rollout could not be completed cleanly. The deployment was restored to pod-local `/tmp` state until the later `priority-email-state` PVC hardening step moved production state to `/var/lib/priority-email`.
 - Rolling a sleeping worker creates brief old-pod/new-pod overlap while Kubernetes drains the previous poll loop. Final verification had to check ReplicaSets and the actual live pod image, not just a single `kubectl logs deployment/...` sample.
 - `.env` must be treated as dotenv data, not a shell script. A Grafana Cloud token contained shell-significant characters during monitoring rollout, so deploy helpers now parse only the AWS key/value fields they need instead of sourcing the whole secrets file.
 
@@ -301,6 +301,17 @@ Key evidence:
 - `scripts/poll-email.py`: matches sender metadata case-insensitively, posts one Slack summary per matched message, and deduplicates posts by provider/message ID within runtime state.
 - `scripts/poll-email.py`: skips matched-message Slack summaries during provider initialization by default to avoid reposting the latest inspected messages after pod cold starts while state is still local to the pod.
 - `tests/test_poll_email.py`: verifies filter matching, initialization skip behavior, Slack summary formatting, and duplicate-post suppression.
+
+### June 22, 2026: Add Durable Production Poller State
+
+Priority Email moved production checkpoint and notification-dedupe state from pod-local `/tmp` to a persistent Kubernetes volume.
+
+Key evidence:
+
+- `infra/k8s/state-pvc.yaml`: creates the `priority-email-state` PersistentVolumeClaim using the cluster `gp2` storage class.
+- `infra/k8s/deployment.yaml`: stores `EMAIL_POLL_STATE_FILE` at `/var/lib/priority-email/email-poller-state.json` and mounts the PVC at `/var/lib/priority-email`.
+- `infra/k8s/deployment.yaml`: uses `Recreate` rollout strategy so only one worker pod mounts the `ReadWriteOnce` state volume at a time.
+- `scripts/kubernetes/apply-manifests.sh` and `scripts/ci/k8s-static-check.py`: apply and validate the state PVC as part of the normal deployment flow.
 
 ### June 21, 2026: Standardize Functional Change Delivery
 

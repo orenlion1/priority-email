@@ -45,9 +45,9 @@ Current AWS deployment status:
 
 Current runtime limitation:
 
-- The first AWS worker deployment uses the local file checkpoint backend on pod-local `/tmp`, matching the current script implementation.
-- The reference EKS cluster currently has no EBS CSI add-on installed, so a PVC-backed checkpoint volume could not be provisioned during the initial deploy.
-- Durable AWS-hosted checkpoints remain the next data-stack step, preferably DynamoDB as already planned below.
+- Production checkpoint and notification-dedupe state is stored in `/var/lib/priority-email/email-poller-state.json`.
+- `/var/lib/priority-email` is backed by the `priority-email-state` Kubernetes PersistentVolumeClaim using the cluster `gp2` storage class.
+- The deployment uses `Recreate` so only one worker pod mounts the `ReadWriteOnce` state volume at a time.
 
 Initial service shape:
 
@@ -78,7 +78,7 @@ Initial service shape:
    - non-root runtime user
    - small production image
    - read-only root filesystem compatible behavior
-   - `/tmp` as the only writable path
+   - `/tmp` for transient poll logs and `/var/lib/priority-email` for durable production poller state
    - `.dockerignore` excludes local `.env`, real filters, OAuth client secret JSON, state, and generated secret material from the Docker build context
 
 3. Push images to ECR using the reference platform naming pattern:
@@ -289,6 +289,13 @@ ConfigMap strategy:
 - Keep newest filter entries at the head of each file.
 - Update filters by editing the source files, recreating/applying the ConfigMap, and restarting or rolling the deployment so the service reloads the mounted files predictably.
 - Commit only `filters/*.txt.template` files to GitHub. Never commit real `filters/*.txt` values.
+
+State persistence strategy:
+
+- Create a PersistentVolumeClaim named `priority-email-state`.
+- Mount it read/write at `/var/lib/priority-email`.
+- Store production `EMAIL_POLL_STATE_FILE` at `/var/lib/priority-email/email-poller-state.json`.
+- Use a single worker replica and a `Recreate` deployment strategy to avoid concurrent writes and EBS multi-attach conflicts.
 
 ## Phase 6: Ingress And Routing
 

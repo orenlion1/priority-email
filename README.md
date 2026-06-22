@@ -11,6 +11,7 @@ Priority Email monitors connected mail accounts for important sender matches, th
 - Incremental messages matching sender-name, exact email, or domain filters post Slack summaries when `SLACK_BOT_TOKEN` and `SLACK_CHANNEL_ID` are configured.
 - AWS deployment is live in the reference AWS account through the `example-platform` AWS CLI profile.
 - The live Kubernetes worker runs in the dedicated `priority-email` namespace.
+- Production checkpoint and notification-dedupe state is stored on the `priority-email-state` persistent volume mounted at `/var/lib/priority-email`.
 - Observability is standardized on Grafana Labs tooling and services.
 - The worker emits structured JSON logs with `service=priority-email-service`, OTLP traces, and OTLP metrics.
 - A namespace-local Grafana Alloy collector receives Priority Email OTLP signals and collects Priority Email pod logs.
@@ -35,6 +36,8 @@ Provider request failures are posted to Slack by default when `SLACK_BOT_TOKEN` 
 Matched email summaries are posted to Slack by default when `EMAIL_POLL_SLACK_SUMMARIES_ENABLED=true`. Provider initialization skips Slack summaries unless `EMAIL_NOTIFY_ON_INITIALIZATION=true`, which avoids reposting the latest inspected messages after cold starts.
 
 Each provider poll appends one JSON line to `EMAIL_POLL_LOG_FILE` for local audit/debugging. The Kubernetes default is `/tmp/email-poller.log`, and the local template default is `.state/email-poller.log`. Audit entries include `level=INFO` for successful polls and `level=ERROR` for failed polls.
+
+Production stores `EMAIL_POLL_STATE_FILE` at `/var/lib/priority-email/email-poller-state.json` on a Kubernetes PVC backed by the cluster `gp2` storage class. The deployment uses `Recreate` so only one worker pod mounts the state volume at a time.
 
 Runtime stdout logging is controlled by `EMAIL_LOG_LEVEL`. Production currently defaults to `INFO`, so successful poll-cycle logs are emitted to stdout for Alloy/Grafana and are also kept in the poll logfile. Provider failures emit `ERROR` logs with sanitized request, duration, Slack notification, and checkpoint context.
 

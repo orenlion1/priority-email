@@ -45,7 +45,7 @@ digraph priority_email_evolution_flow_dark {
   ];
 
   deployment [
-    label="AWS deployment plan\nexample-platform profile\nDedicated priority-email namespace\nDynamoDB checkpoints\nConfigMap filters",
+    label="AWS deployment plan\nexample-platform profile\nDedicated priority-email namespace\nPVC state volume\nConfigMap filters",
     fillcolor="#713f12",
     color="#facc15"
   ];
@@ -87,7 +87,7 @@ digraph priority_email_evolution_flow_dark {
   ];
 
   aws_live [
-    label="AWS worker live\nECR image pushed\nSecrets Manager runtime\nConfigMap filters\npriority-email namespace",
+    label="AWS worker live\nECR image pushed\nSecrets Manager runtime\nConfigMap filters\nPVC-backed state",
     fillcolor="#365314",
     color="#bef264"
   ];
@@ -123,7 +123,7 @@ digraph priority_email_evolution_flow_dark {
   ];
 
   next [
-    label="Next implementation\nDurable DynamoDB checkpoints\nFilter matching pipeline\nSlack summaries from matches\nYahoo/iCloud pollers",
+    label="Next implementation\nPush notifications\nPersistent state backup plan\nYahoo/iCloud hardening\nOperational dashboard",
     fillcolor="#7f1d1d",
     color="#fca5a5"
   ];

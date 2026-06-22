@@ -30,6 +30,7 @@ Priority Email helps users avoid missing important messages that are buried acro
 - Priority Email emits structured JSON logs with `service=priority-email-service`.
 - Priority Email emits OTLP metrics and traces for provider poll cycles.
 - Priority Email Kubernetes manifests include a dedicated namespace-local Grafana Alloy collector that receives OTLP and collects pod logs from the `priority-email` namespace.
+- Priority Email Kubernetes manifests include a namespace-local persistent volume claim for production checkpoint and notification-dedupe state.
 - Local runtime secrets live in gitignored `.env`; `.env.example` is the committed-safe template.
 - AWS access uses the local AWS CLI profile `example-platform` for account `<aws-account-id>`; static AWS access keys must not be copied into this repo.
 - Real filter values live in gitignored `filters/*.txt`; only `filters/*.txt.template` files are safe to push to GitHub.
@@ -63,6 +64,7 @@ Priority Email helps users avoid missing important messages that are buried acro
 - Each email provider must have its own configurable poller.
 - The default poll interval must be 10 minutes.
 - Pollers must store a provider-specific checkpoint after every successful poll cycle.
+- Production provider checkpoint and notification-dedupe state must survive pod restarts.
 - After a provider checkpoint exists, each poll cycle must only inspect messages newer than the prior checkpoint.
 - When initializing a provider poller with no prior checkpoint, the poller must inspect only the latest 20 email messages before setting the first checkpoint.
 - The initial latest-message inspection limit must be configurable, with `20` as the default.

@@ -64,6 +64,7 @@ kubectl -n "$namespace" create configmap priority-email-filters \
 
 kubectl apply -f "$manifest_dir/network-policy.yaml"
 kubectl apply -f "$manifest_dir/alloy.yaml"
+kubectl apply -f "$manifest_dir/state-pvc.yaml"
 kubectl apply -f "$manifest_dir/deployment.yaml"
 kubectl apply -f "$manifest_dir/poddisruptionbudget.yaml"
 

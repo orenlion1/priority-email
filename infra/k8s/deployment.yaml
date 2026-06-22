@@ -9,10 +9,7 @@ metadata:
 spec:
   replicas: 1
   strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: priority-email-service
@@ -43,7 +40,7 @@ spec:
             - name: EMAIL_LOG_LEVEL
               value: INFO
             - name: EMAIL_POLL_STATE_FILE
-              value: /tmp/email-poller-state.json
+              value: /var/lib/priority-email/email-poller-state.json
             - name: EMAIL_POLL_LOG_FILE
               value: /tmp/email-poller.log
             - name: EMAIL_POLL_INTERVAL_SECONDS
@@ -59,6 +56,8 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: state
+              mountPath: /var/lib/priority-email
             - name: filters
               mountPath: /app/filters
               readOnly: true
@@ -77,6 +76,9 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
+        - name: state
+          persistentVolumeClaim:
+            claimName: priority-email-state
         - name: filters
           configMap:
             name: priority-email-filters

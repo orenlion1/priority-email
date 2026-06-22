@@ -10,6 +10,7 @@ REQUIRED = {
     "alloy.yaml": ("ServiceAccount", "priority-email-alloy"),
     "namespace.yaml": ("Namespace", "priority-email"),
     "serviceaccount.yaml": ("ServiceAccount", "priority-email-service"),
+    "state-pvc.yaml": ("PersistentVolumeClaim", "priority-email-state"),
     "deployment.yaml": ("Deployment", "priority-email-service"),
     "network-policy.yaml": ("NetworkPolicy", "default-deny-ingress"),
     "poddisruptionbudget.yaml": ("PodDisruptionBudget", "priority-email-service"),
@@ -51,6 +52,10 @@ def main():
         "http://alloy.priority-email.svc.cluster.local:4318",
         "EMAIL_POLL_LOG_FILE",
         "/tmp/email-poller.log",
+        "EMAIL_POLL_STATE_FILE",
+        "/var/lib/priority-email/email-poller-state.json",
+        "claimName: priority-email-state",
+        "type: Recreate",
         "EMAIL_LOG_LEVEL",
         "INFO",
     ]
