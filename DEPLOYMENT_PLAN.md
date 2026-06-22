@@ -292,6 +292,7 @@ ConfigMap strategy:
 
 State persistence strategy:
 
+- Ensure the AWS managed `aws-ebs-csi-driver` EKS add-on is installed with an IRSA role trusted by `kube-system:ebs-csi-controller-sa`.
 - Create a PersistentVolumeClaim named `priority-email-state`.
 - Mount it read/write at `/var/lib/priority-email`.
 - Store production `EMAIL_POLL_STATE_FILE` at `/var/lib/priority-email/email-poller-state.json`.

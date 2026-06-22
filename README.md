@@ -60,7 +60,7 @@ For local OTEL testing, run an OTLP HTTP collector on `localhost:4318` or set `O
 ```bash
 python3 -m unittest discover tests
 python3 -m compileall scripts tests
-bash -n scripts/aws/ensure-ecr.sh scripts/aws/sync-runtime-secret.sh scripts/aws/build-and-push-image.sh scripts/aws/deploy-to-aws.sh scripts/kubernetes/apply-manifests.sh
+bash -n scripts/aws/ensure-ecr.sh scripts/aws/ensure-ebs-csi-addon.sh scripts/aws/sync-runtime-secret.sh scripts/aws/build-and-push-image.sh scripts/aws/deploy-to-aws.sh scripts/kubernetes/apply-manifests.sh
 sh -n scripts/run-poller-loop.sh
 python3 scripts/ci/k8s-static-check.py
 python3 scripts/ci/secret-scan.py
@@ -84,6 +84,8 @@ scripts/aws/deploy-to-aws.sh
 ```
 
 The deploy script syncs `.env` to AWS Secrets Manager, builds and pushes the Docker image to ECR, mounts real local filter files as a Kubernetes ConfigMap, and applies the dedicated `priority-email` Kubernetes workload.
+
+The deploy script also ensures the AWS managed `aws-ebs-csi-driver` EKS add-on is active with an IRSA role before applying the state PVC.
 
 Grafana Cloud ingest values must be present in gitignored `.env` before deployment. The deploy script copies only these Grafana keys into the narrow Kubernetes `priority-email-observability-secrets` object for Alloy:
 

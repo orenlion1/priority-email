@@ -311,6 +311,7 @@ Key evidence:
 - `infra/k8s/state-pvc.yaml`: creates the `priority-email-state` PersistentVolumeClaim using the cluster `gp2` storage class.
 - `infra/k8s/deployment.yaml`: stores `EMAIL_POLL_STATE_FILE` at `/var/lib/priority-email/email-poller-state.json` and mounts the PVC at `/var/lib/priority-email`.
 - `infra/k8s/deployment.yaml`: uses `Recreate` rollout strategy so only one worker pod mounts the `ReadWriteOnce` state volume at a time.
+- `scripts/aws/ensure-ebs-csi-addon.sh`: ensures the AWS managed EBS CSI add-on is active with an IRSA role before applying the state PVC.
 - `scripts/kubernetes/apply-manifests.sh` and `scripts/ci/k8s-static-check.py`: apply and validate the state PVC as part of the normal deployment flow.
 
 ### June 21, 2026: Standardize Functional Change Delivery
