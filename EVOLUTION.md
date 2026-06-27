@@ -337,6 +337,16 @@ Key evidence:
 - `scripts/aws/*.sh`: require `AWS_PROFILE` and `AWS_ACCOUNT_ID` from local environment or gitignored `.env` instead of carrying public default account/profile values.
 - Public-safety scans found no tracked real AWS account ID, Google project number, user home path, private GitHub owner URL, or private image digest.
 
+### June 27, 2026: Make Notification Updates Deploy Immediately
+
+Priority Email added a repository-specific notification-update skill so notification configuration changes cannot stop after editing and testing. Once unit tests pass, the agent must deploy the update to AWS in the same task and verify the live rollout and configuration.
+
+Key evidence:
+
+- `<team-skills>/skills/priority-email-notification-updates/SKILL.md`: defines validation, secret-safe filter handling, mandatory post-test deployment, and narrow live verification.
+- `AGENTS.md`: imports the skill and makes immediate deployment mandatory for every notification configuration update.
+- Filter-only changes remain uncommitted and are deployed with the current CI-green source revision, preserving the rule that real filter values never enter Git.
+
 ## Current Shape
 
 1. `REQUIREMENTS.md` defines the product, security, provider, and platform requirements.
@@ -348,7 +358,7 @@ Key evidence:
 7. `scripts/poll-email.py` provides the first configurable Gmail poller with checkpointed incremental polling.
 8. Slack app `Priority Email` is installed in workspace `example-platform` with `chat:write`; the bot token remains a gitignored local/deployment secret.
 9. `scripts/test-slack-message.py` validates Slack posting once the app is invited to the configured channel.
-10. Team engineering skills are imported into `AGENTS.md` and backed by the first unit tests for poller behavior.
+10. Team engineering skills, including the Priority Email notification-update workflow, are imported into `AGENTS.md` and backed by unit tests for poller behavior.
 11. AWS deployment access uses the reference platform `example-platform` AWS CLI profile instead of static keys.
 12. `README.md` documents the current safe local workflow for the GitHub repo.
 13. `EVOLUTION.md`, `docs/evolution/categories/`, and generated Graphviz flow diagrams preserve the project chronology.
@@ -357,3 +367,4 @@ Key evidence:
 16. Provider request failures are posted to Slack with sanitized error details.
 17. Functional runtime changes are delivered by pushing to GitHub, waiting for CI, and deploying the same commit to AWS.
 18. Public GitHub readiness redacts account, project, workspace, path, and deployment identifiers from tracked files.
+19. Notification configuration updates must pass unit tests, deploy to AWS in the same task, and receive live rollout/configuration verification.

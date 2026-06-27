@@ -8,8 +8,8 @@
  viewBox="0.00 0.00 577.00 1959.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
 <g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(25.2 1934)">
 <title>priority_email_evolution_flow_dark</title>
-<polygon fill="#111827" stroke="none" points="-25.2,25.2 -25.2,-1934 551.6,-1934 551.6,25.2 -25.2,25.2"/>
-<text xml:space="preserve" text-anchor="middle" x="263.2" y="-1878.2" font-family="Helvetica,sans-Serif" font-size="28.00" fill="#f8fafc">Priority Email Evolution Flow</text>
+<polygon fill="#111827" stroke="none" points="-25.2,25.2 -25.2,-1934 551.95,-1934 551.95,25.2 -25.2,25.2"/>
+<text xml:space="preserve" text-anchor="middle" x="263.37" y="-1878.2" font-family="Helvetica,sans-Serif" font-size="28.00" fill="#f8fafc">Priority Email Evolution Flow</text>
 <!-- requirements -->
 <g id="node1" class="node">
 <title>requirements</title>
@@ -123,7 +123,7 @@
 <text xml:space="preserve" text-anchor="middle" x="402.2" y="-1072.72" font-family="Helvetica,sans-Serif" font-size="16.00" fill="#f8fafc">Spec&#45;driven work</text>
 <text xml:space="preserve" text-anchor="middle" x="402.2" y="-1056.22" font-family="Helvetica,sans-Serif" font-size="16.00" fill="#f8fafc">TDD and unit tests</text>
 <text xml:space="preserve" text-anchor="middle" x="402.2" y="-1039.72" font-family="Helvetica,sans-Serif" font-size="16.00" fill="#f8fafc">Security hardening</text>
-<text xml:space="preserve" text-anchor="middle" x="402.2" y="-1023.22" font-family="Helvetica,sans-Serif" font-size="16.00" fill="#f8fafc">Review gates</text>
+<text xml:space="preserve" text-anchor="middle" x="402.2" y="-1023.22" font-family="Helvetica,sans-Serif" font-size="16.00" fill="#f8fafc">Notification deploy skill</text>
 </g>
 <!-- policy&#45;&gt;quality -->
 <g id="edge7" class="edge">
@@ -198,12 +198,12 @@
 <!-- delivery_flow -->
 <g id="node13" class="node">
 <title>delivery_flow</title>
-<path fill="#7c2d12" stroke="#fdba74" d="M514.4,-475.08C514.4,-475.08 290,-475.08 290,-475.08 284,-475.08 278,-469.08 278,-463.08 278,-463.08 278,-393.06 278,-393.06 278,-387.06 284,-381.06 290,-381.06 290,-381.06 514.4,-381.06 514.4,-381.06 520.4,-381.06 526.4,-387.06 526.4,-393.06 526.4,-393.06 526.4,-463.08 526.4,-463.08 526.4,-469.08 520.4,-475.08 514.4,-475.08"/>
+<path fill="#7c2d12" stroke="#fdba74" d="M514.75,-475.08C514.75,-475.08 289.65,-475.08 289.65,-475.08 283.65,-475.08 277.65,-469.08 277.65,-463.08 277.65,-463.08 277.65,-393.06 277.65,-393.06 277.65,-387.06 283.65,-381.06 289.65,-381.06 289.65,-381.06 514.75,-381.06 514.75,-381.06 520.75,-381.06 526.75,-387.06 526.75,-393.06 526.75,-393.06 526.75,-463.08 526.75,-463.08 526.75,-469.08 520.75,-475.08 514.75,-475.08"/>
 <text xml:space="preserve" text-anchor="middle" x="402.2" y="-454.12" font-family="Helvetica,sans-Serif" font-size="16.00" fill="#f8fafc">Delivery flow</text>
-<text xml:space="preserve" text-anchor="middle" x="402.2" y="-437.62" font-family="Helvetica,sans-Serif" font-size="16.00" fill="#f8fafc">Push to GitHub</text>
-<text xml:space="preserve" text-anchor="middle" x="402.2" y="-421.12" font-family="Helvetica,sans-Serif" font-size="16.00" fill="#f8fafc">CI must pass</text>
-<text xml:space="preserve" text-anchor="middle" x="402.2" y="-404.62" font-family="Helvetica,sans-Serif" font-size="16.00" fill="#f8fafc">Deploy same commit to AWS</text>
-<text xml:space="preserve" text-anchor="middle" x="402.2" y="-388.12" font-family="Helvetica,sans-Serif" font-size="16.00" fill="#f8fafc">Verify live image</text>
+<text xml:space="preserve" text-anchor="middle" x="402.2" y="-437.62" font-family="Helvetica,sans-Serif" font-size="16.00" fill="#f8fafc">Push tracked changes to GitHub</text>
+<text xml:space="preserve" text-anchor="middle" x="402.2" y="-421.12" font-family="Helvetica,sans-Serif" font-size="16.00" fill="#f8fafc">CI/tests must pass</text>
+<text xml:space="preserve" text-anchor="middle" x="402.2" y="-404.62" font-family="Helvetica,sans-Serif" font-size="16.00" fill="#f8fafc">Deploy notification updates now</text>
+<text xml:space="preserve" text-anchor="middle" x="402.2" y="-388.12" font-family="Helvetica,sans-Serif" font-size="16.00" fill="#f8fafc">Verify live image and config</text>
 </g>
 <!-- provider_errors&#45;&gt;delivery_flow -->
 <g id="edge12" class="edge">

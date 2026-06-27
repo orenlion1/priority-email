@@ -75,7 +75,7 @@ digraph priority_email_evolution_flow_dark {
   ];
 
   quality [
-    label="Team skills applied\nSpec-driven work\nTDD and unit tests\nSecurity hardening\nReview gates",
+    label="Team skills applied\nSpec-driven work\nTDD and unit tests\nSecurity hardening\nNotification deploy skill",
     fillcolor="#075985",
     color="#7dd3fc"
   ];
@@ -105,7 +105,7 @@ digraph priority_email_evolution_flow_dark {
   ];
 
   delivery_flow [
-    label="Delivery flow\nPush to GitHub\nCI must pass\nDeploy same commit to AWS\nVerify live image",
+    label="Delivery flow\nPush tracked changes to GitHub\nCI/tests must pass\nDeploy notification updates now\nVerify live image and config",
     fillcolor="#7c2d12",
     color="#fdba74"
   ];

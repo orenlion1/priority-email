@@ -13,6 +13,7 @@ Apply these external team skills when working in this repository:
 - `<team-skills>/skills/security-and-hardening/SKILL.md`
 - `<team-skills>/skills/git-workflow-and-versioning/SKILL.md`
 - `<team-skills>/skills/ci-cd-and-automation/SKILL.md`
+- `<team-skills>/skills/priority-email-notification-updates/SKILL.md`
 
 Applied working rules:
 
@@ -25,6 +26,8 @@ Applied working rules:
 - Keep changes small and separately reviewable; do not mix large refactors with feature work.
 - Keep CI green on every pull request and push to `main`; quality gates should run before deployment.
 - For functional runtime changes, push the source commit to GitHub, wait for CI to pass, then deploy the same commit to AWS with `scripts/aws/deploy-to-aws.sh` and verify the live image.
+- For every notification configuration update, run the unit tests and, after they pass, deploy during the same task with `scripts/aws/deploy-to-aws.sh`; verify the rollout, live image, and changed live configuration without printing private filter values or secrets.
+- For filter-only updates, keep real values uncommitted and deploy them with the current CI-green source revision. Never leave a successful notification update waiting for a future deployment.
 - Do not add CI steps that require production secrets. Deployment credentials belong in AWS/GitHub secrets or local operator profiles, not workflow files.
 
 ## Required Documentation Updates

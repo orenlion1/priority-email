@@ -15,7 +15,8 @@
 | 2026-06-21 | The CI/CD automation skill was imported and applied as a secret-safe GitHub Actions quality gate. | `AGENTS.md`, `.github/workflows/ci.yml`, `scripts/ci/` |
 | 2026-06-21 | Repo policy was updated so functional runtime changes must push to GitHub, pass CI, deploy the same commit to AWS, and verify the live image. | `AGENTS.md`, `DEPLOYMENT_PLAN.md`, `.github/workflows/ci.yml` |
 | 2026-06-21 | Public GitHub readiness redacted personal, account, project, workspace, local-path, and private deployment identifiers from tracked files. | `.env.example`, `DEPLOYMENT_PLAN.md`, `EVOLUTION.md`, `infra/k8s/deployment.yaml`, `scripts/aws/` |
+| 2026-06-27 | A Priority Email-specific skill made post-test AWS deployment and live verification mandatory for every notification configuration update while keeping real filter values uncommitted. | `<team-skills>/skills/priority-email-notification-updates/SKILL.md`, `AGENTS.md`, `EVOLUTION.md` |
 
 ## Current Policy Shape
 
-Future key milestones should update `EVOLUTION.md`, the matching category file, and generated evolution diagrams when the project flow changes. Secret, filter, and public-identifier safety are first-class repo policy, especially before any future GitHub visibility change.
+Future key milestones should update `EVOLUTION.md`, the matching category file, and generated evolution diagrams when the project flow changes. Secret, filter, and public-identifier safety are first-class repo policy. Notification configuration changes must pass tests, deploy immediately, and be verified live without exposing private values.
