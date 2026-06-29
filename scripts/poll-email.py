@@ -403,7 +403,7 @@ def matching_filters(message, filters):
     matches = []
     if domain:
         for value in filters.get("domain", []):
-            if domain == value:
+            if domain == value or domain.endswith("." + value):
                 matches.append({"type": "domain", "value": value})
     if address:
         for value in filters.get("email_address", []):

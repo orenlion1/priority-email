@@ -635,6 +635,34 @@ class GmailPollerTests(unittest.TestCase):
         )
         self.assertEqual([{"type": "sender_name", "value": "jane smith"}], name_matches)
 
+    def test_domain_filter_matches_subdomains(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            filter_dir = Path(tmpdir)
+            (filter_dir / "domain-filters.txt").write_text("myworkday.com\n")
+            (filter_dir / "email-address-filters.txt").write_text("")
+            (filter_dir / "sender-name-filters.txt").write_text("")
+
+            filters = poll_email.load_sender_filters({"EMAIL_FILTER_DIR": str(filter_dir)})
+
+        subdomain_matches = poll_email.matching_filters(
+            {"from": "Notify <noreply@notifications.myworkday.com>"},
+            filters,
+        )
+        exact_matches = poll_email.matching_filters(
+            {"from": "Notify <noreply@myworkday.com>"},
+            filters,
+        )
+        non_matches = poll_email.matching_filters(
+            {"from": "Spoof <noreply@notmyworkday.com>"},
+            filters,
+        )
+
+        self.assertEqual(
+            [{"type": "domain", "value": "myworkday.com"}], subdomain_matches
+        )
+        self.assertEqual([{"type": "domain", "value": "myworkday.com"}], exact_matches)
+        self.assertEqual([], non_matches)
+
     def test_initialization_skips_matched_message_slack_by_default(self):
         telemetry = poll_email.Telemetry({})
         state = {}
