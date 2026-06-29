@@ -5,6 +5,7 @@ import email.utils
 import imaplib
 import json
 import os
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -823,6 +824,11 @@ class GmailPoller(BaseProviderPoller):
 class YahooPoller(BaseProviderPoller):
     name = "yahoo"
 
+    @staticmethod
+    def retryable_imap_error(exc):
+        message = str(exc).upper()
+        return "[SERVERBUG]" in message and "TRY AGAIN LATER" in message
+
     def access_token(self, values, provider_state, telemetry=None):
         refresh_token = provider_state.get("refresh_token") or require(
             values, "YAHOO_REFRESH_TOKENS"
@@ -882,22 +888,33 @@ class YahooPoller(BaseProviderPoller):
     def connect(self, values, email_address, credential, auth_method):
         host = values.get("YAHOO_IMAP_HOST", "imap.mail.yahoo.com")
         port = int_config(values, "YAHOO_IMAP_PORT", 993)
-        try:
-            conn = imaplib.IMAP4_SSL(host, port)
-            if auth_method == "password":
-                conn.login(email_address, credential)
-            else:
-                auth = f"user={email_address}\x01auth=Bearer {credential}\x01\x01"
-                conn.authenticate("XOAUTH2", lambda _: auth.encode())
-            conn.select("INBOX", readonly=True)
-            return conn
-        except (imaplib.IMAP4.error, OSError, TimeoutError) as exc:
-            raise EmailProviderRequestError(
-                method="IMAP",
-                url=f"imaps://{host}:{port}/INBOX",
-                reason=type(exc).__name__,
-                details=truncate(exc, 500),
-            ) from exc
+        for attempt in range(3):
+            conn = None
+            try:
+                conn = imaplib.IMAP4_SSL(host, port)
+                if auth_method == "password":
+                    conn.login(email_address, credential)
+                else:
+                    auth = f"user={email_address}\x01auth=Bearer {credential}\x01\x01"
+                    conn.authenticate("XOAUTH2", lambda _: auth.encode())
+                conn.select("INBOX", readonly=True)
+                return conn
+            except (imaplib.IMAP4.error, OSError, TimeoutError) as exc:
+                if conn is not None:
+                    try:
+                        conn.logout()
+                    except Exception:
+                        pass
+                retryable = self.retryable_imap_error(exc)
+                if retryable and attempt < 2:
+                    time.sleep(attempt + 1)
+                    continue
+                raise EmailProviderRequestError(
+                    method="IMAP",
+                    url=f"imaps://{host}:{port}/INBOX",
+                    reason="serverbug" if retryable else type(exc).__name__,
+                    details=truncate(exc, 500),
+                ) from exc
 
     def search_uids(self, conn, checkpoint_uid):
         criterion = "ALL" if checkpoint_uid is None else f"UID {int(checkpoint_uid) + 1}:*"

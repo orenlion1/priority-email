@@ -738,6 +738,84 @@ class GmailPollerTests(unittest.TestCase):
 
 
 class YahooPollerTests(unittest.TestCase):
+    def test_connect_retries_transient_yahoo_login_serverbug(self):
+        first = mock.Mock()
+        first.login.side_effect = poll_email.imaplib.IMAP4.error(
+            "[SERVERBUG] LOGIN Server error - Please try again later"
+        )
+        second = mock.Mock()
+
+        with mock.patch.object(
+            poll_email.imaplib,
+            "IMAP4_SSL",
+            side_effect=[first, second],
+        ) as connect, mock.patch.object(poll_email.time, "sleep") as sleep:
+            result = poll_email.YahooPoller().connect(
+                {},
+                "user@yahoo.example",
+                "test-app-password",
+                "password",
+            )
+
+        self.assertIs(second, result)
+        self.assertEqual(2, connect.call_count)
+        first.logout.assert_called_once_with()
+        sleep.assert_called_once_with(1)
+        second.login.assert_called_once_with(
+            "user@yahoo.example", "test-app-password"
+        )
+        second.select.assert_called_once_with("INBOX", readonly=True)
+
+    def test_connect_stops_after_three_transient_yahoo_login_serverbugs(self):
+        connections = [mock.Mock() for _ in range(3)]
+        for connection in connections:
+            connection.login.side_effect = poll_email.imaplib.IMAP4.error(
+                "[SERVERBUG] LOGIN Server error - Please try again later"
+            )
+
+        with mock.patch.object(
+            poll_email.imaplib,
+            "IMAP4_SSL",
+            side_effect=connections,
+        ) as connect, mock.patch.object(poll_email.time, "sleep") as sleep:
+            with self.assertRaises(poll_email.EmailProviderRequestError) as raised:
+                poll_email.YahooPoller().connect(
+                    {},
+                    "user@yahoo.example",
+                    "test-app-password",
+                    "password",
+                )
+
+        self.assertEqual("serverbug", raised.exception.reason)
+        self.assertEqual(3, connect.call_count)
+        self.assertEqual([mock.call(1), mock.call(2)], sleep.call_args_list)
+        for connection in connections:
+            connection.logout.assert_called_once_with()
+
+    def test_connect_does_not_retry_invalid_yahoo_credentials(self):
+        connection = mock.Mock()
+        connection.login.side_effect = poll_email.imaplib.IMAP4.error(
+            "[AUTHENTICATIONFAILED] Invalid credentials"
+        )
+
+        with mock.patch.object(
+            poll_email.imaplib,
+            "IMAP4_SSL",
+            return_value=connection,
+        ) as connect, mock.patch.object(poll_email.time, "sleep") as sleep:
+            with self.assertRaises(poll_email.EmailProviderRequestError) as raised:
+                poll_email.YahooPoller().connect(
+                    {},
+                    "user@yahoo.example",
+                    "test-app-password",
+                    "password",
+                )
+
+        self.assertEqual("error", raised.exception.reason)
+        connect.assert_called_once_with("imap.mail.yahoo.com", 993)
+        sleep.assert_not_called()
+        connection.logout.assert_called_once_with()
+
     def test_initial_poll_inspects_latest_configured_uids(self):
         conn = FakeYahooConnection(
             [101, 102, 103],
