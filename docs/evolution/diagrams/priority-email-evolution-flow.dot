@@ -98,7 +98,7 @@ digraph priority_email_evolution_flow {
   ];
 
   provider_errors [
-    label="Provider errors\nSlack diagnostics\nSanitized request details\nSaved error state\nWorker keeps polling",
+    label="Provider resilience\nBounded transient retries\nSlack diagnostics after exhaustion\nSanitized request details\nWorker keeps polling",
     fillcolor="#fae8ff",
     color="#a21caf"
   ];

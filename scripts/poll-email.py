@@ -24,6 +24,8 @@ YAHOO_USERINFO_URL = "https://api.login.yahoo.com/openid/v1/userinfo"
 METADATA_HEADERS = ["From", "Subject", "Date"]
 SLACK_POST_MESSAGE_URL = "https://slack.com/api/chat.postMessage"
 SENSITIVE_QUERY_KEYS = {"access_token", "client_secret", "code", "key", "password", "token"}
+PROVIDER_REQUEST_MAX_ATTEMPTS = 3
+TRANSIENT_PROVIDER_HTTP_STATUSES = {"408", "429", "500", "502", "503", "504"}
 FILTER_FILE_NAMES = {
     "domain": "domain-filters.txt",
     "email_address": "email-address-filters.txt",
@@ -219,6 +221,12 @@ def record_provider_request_metrics(
         telemetry.count("priority_email_provider_request_errors_total", **labels)
 
 
+def retryable_provider_request_error(exc):
+    if exc.status:
+        return exc.status in TRANSIENT_PROVIDER_HTTP_STATUSES
+    return exc.reason != "invalid_json"
+
+
 def metered_provider_request(
     telemetry,
     *,
@@ -229,32 +237,39 @@ def metered_provider_request(
     data=None,
     headers=None,
 ):
-    started = dt.datetime.now(dt.UTC)
-    try:
-        result = request_json(url, method=method, data=data, headers=headers)
-    except EmailProviderRequestError as exc:
+    for attempt in range(1, PROVIDER_REQUEST_MAX_ATTEMPTS + 1):
+        started = dt.datetime.now(dt.UTC)
+        try:
+            result = request_json(url, method=method, data=data, headers=headers)
+        except EmailProviderRequestError as exc:
+            duration_ms = (dt.datetime.now(dt.UTC) - started).total_seconds() * 1000
+            record_provider_request_metrics(
+                telemetry,
+                provider=provider,
+                operation=operation,
+                method=method,
+                outcome="error",
+                duration_ms=duration_ms,
+                status=exc.status or "unknown",
+                reason=exc.reason or "unknown",
+            )
+            if (
+                attempt == PROVIDER_REQUEST_MAX_ATTEMPTS
+                or not retryable_provider_request_error(exc)
+            ):
+                raise
+            time.sleep(attempt)
+            continue
         duration_ms = (dt.datetime.now(dt.UTC) - started).total_seconds() * 1000
         record_provider_request_metrics(
             telemetry,
             provider=provider,
             operation=operation,
             method=method,
-            outcome="error",
+            outcome="ok",
             duration_ms=duration_ms,
-            status=exc.status or "unknown",
-            reason=exc.reason or "unknown",
         )
-        raise
-    duration_ms = (dt.datetime.now(dt.UTC) - started).total_seconds() * 1000
-    record_provider_request_metrics(
-        telemetry,
-        provider=provider,
-        operation=operation,
-        method=method,
-        outcome="ok",
-        duration_ms=duration_ms,
-    )
-    return result
+        return result
 
 
 def metered_imap_operation(telemetry, *, provider, operation, action):

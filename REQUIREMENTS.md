@@ -75,6 +75,9 @@ Priority Email helps users avoid missing important messages that are buried acro
 - Provider poll failures must emit `ERROR` level runtime logs with enough sanitized context for debugging, including provider, duration, sanitized request details, Slack error notification outcome, state/log file paths, and non-secret checkpoint state.
 - Runtime stdout logging must be configurable by log level, and production must default to `ERROR`.
 - If a request to an email provider fails, the poller must post an error notification to Slack with the provider name, sanitized request URL, HTTP status when available, reason, and truncated response details.
+- Provider HTTP requests must retry transport failures and HTTP `408`, `429`, `500`, `502`, `503`, and `504` responses up to three total attempts with one- and two-second backoff delays before surfacing the final error.
+- Provider HTTP requests must surface non-transient failures such as `400`, `401`, `403`, and invalid JSON immediately without retrying.
+- Transient attempts must emit request metrics, but Slack and poll-failure errors must be emitted only if all attempts fail.
 - Provider error notifications must never include OAuth tokens, refresh tokens, client secrets, authorization headers, or full email content.
 - Provider error notifications should be configurable so they can be disabled for local troubleshooting.
 

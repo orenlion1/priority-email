@@ -321,6 +321,137 @@ class GmailPollerTests(unittest.TestCase):
             request_metric[3],
         )
 
+    def test_provider_request_retries_transient_503_before_succeeding(self):
+        telemetry = poll_email.Telemetry({})
+        unavailable = poll_email.EmailProviderRequestError(
+            method="POST",
+            url=poll_email.GMAIL_TOKEN_URL,
+            status=503,
+            reason="Service Unavailable",
+            details='{"error":"internal_failure"}',
+        )
+
+        with mock.patch.object(
+            poll_email,
+            "request_json",
+            side_effect=[unavailable, {"access_token": "recovered-token"}],
+        ) as request, mock.patch.object(poll_email.time, "sleep") as sleep:
+            result = poll_email.metered_provider_request(
+                telemetry,
+                provider="gmail",
+                operation="oauth_token",
+                url=poll_email.GMAIL_TOKEN_URL,
+                method="POST",
+            )
+
+        self.assertEqual({"access_token": "recovered-token"}, result)
+        self.assertEqual(2, request.call_count)
+        sleep.assert_called_once_with(1)
+        outcomes = [
+            item[3]["outcome"]
+            for item in telemetry.metrics
+            if item[1] == "priority_email_provider_requests_total"
+        ]
+        self.assertEqual(["error", "ok"], outcomes)
+
+    def test_provider_request_surfaces_transient_error_after_three_attempts(self):
+        unavailable = poll_email.EmailProviderRequestError(
+            method="POST",
+            url=poll_email.GMAIL_TOKEN_URL,
+            status=503,
+            reason="Service Unavailable",
+        )
+
+        with mock.patch.object(
+            poll_email,
+            "request_json",
+            side_effect=unavailable,
+        ) as request, mock.patch.object(poll_email.time, "sleep") as sleep:
+            with self.assertRaises(poll_email.EmailProviderRequestError) as raised:
+                poll_email.metered_provider_request(
+                    None,
+                    provider="gmail",
+                    operation="oauth_token",
+                    url=poll_email.GMAIL_TOKEN_URL,
+                    method="POST",
+                )
+
+        self.assertIs(unavailable, raised.exception)
+        self.assertEqual(3, request.call_count)
+        self.assertEqual([mock.call(1), mock.call(2)], sleep.call_args_list)
+
+    def test_provider_request_retries_transport_timeout(self):
+        timeout = poll_email.EmailProviderRequestError(
+            method="GET",
+            url="https://mail.example.test/messages",
+            reason="timeout",
+        )
+
+        with mock.patch.object(
+            poll_email,
+            "request_json",
+            side_effect=[timeout, {"messages": []}],
+        ) as request, mock.patch.object(poll_email.time, "sleep") as sleep:
+            result = poll_email.metered_provider_request(
+                None,
+                provider="gmail",
+                operation="list_messages",
+                url="https://mail.example.test/messages",
+            )
+
+        self.assertEqual({"messages": []}, result)
+        self.assertEqual(2, request.call_count)
+        sleep.assert_called_once_with(1)
+
+    def test_provider_request_does_not_retry_non_transient_401(self):
+        unauthorized = poll_email.EmailProviderRequestError(
+            method="POST",
+            url=poll_email.GMAIL_TOKEN_URL,
+            status=401,
+            reason="Unauthorized",
+        )
+
+        with mock.patch.object(
+            poll_email,
+            "request_json",
+            side_effect=unauthorized,
+        ) as request, mock.patch.object(poll_email.time, "sleep") as sleep:
+            with self.assertRaises(poll_email.EmailProviderRequestError) as raised:
+                poll_email.metered_provider_request(
+                    None,
+                    provider="gmail",
+                    operation="oauth_token",
+                    url=poll_email.GMAIL_TOKEN_URL,
+                    method="POST",
+                )
+
+        self.assertIs(unauthorized, raised.exception)
+        request.assert_called_once()
+        sleep.assert_not_called()
+
+    def test_provider_request_does_not_retry_invalid_json(self):
+        invalid_json = poll_email.EmailProviderRequestError(
+            method="GET",
+            url="https://mail.example.test/messages",
+            reason="invalid_json",
+        )
+
+        with mock.patch.object(
+            poll_email,
+            "request_json",
+            side_effect=invalid_json,
+        ) as request, mock.patch.object(poll_email.time, "sleep") as sleep:
+            with self.assertRaises(poll_email.EmailProviderRequestError):
+                poll_email.metered_provider_request(
+                    None,
+                    provider="gmail",
+                    operation="list_messages",
+                    url="https://mail.example.test/messages",
+                )
+
+        request.assert_called_once()
+        sleep.assert_not_called()
+
     def test_provider_request_error_metrics_include_provider_and_reason(self):
         telemetry = poll_email.Telemetry({})
         error = poll_email.EmailProviderRequestError(
@@ -330,7 +461,9 @@ class GmailPollerTests(unittest.TestCase):
             reason="provider_unavailable",
         )
 
-        with mock.patch.object(poll_email, "request_json", side_effect=error):
+        with mock.patch.object(
+            poll_email, "request_json", side_effect=error
+        ), mock.patch.object(poll_email.time, "sleep"):
             with self.assertRaises(poll_email.EmailProviderRequestError):
                 poll_email.metered_provider_request(
                     telemetry,

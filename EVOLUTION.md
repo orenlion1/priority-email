@@ -347,6 +347,17 @@ Key evidence:
 - `AGENTS.md`: imports the skill and makes immediate deployment mandatory for every notification configuration update.
 - Filter-only changes remain uncommitted and are deployed with the current CI-green source revision, preserving the rule that real filter values never enter Git.
 
+### June 30, 2026: Retry Transient Provider Requests
+
+A production Gmail OAuth token request returned one HTTP `503 Service Unavailable` with `internal_failure`. Grafana Cloud and pod logs showed that credentials remained valid and the next ten-minute poll succeeded, isolating the event to a transient upstream failure. Priority Email now retries transient provider HTTP and transport failures before surfacing a poll failure or Slack error notification.
+
+Key evidence:
+
+- `scripts/poll-email.py`: retries transport failures and HTTP `408`, `429`, `500`, `502`, `503`, and `504` responses up to three attempts with one- and two-second backoff delays.
+- `tests/test_poll_email.py`: reproduces the Gmail OAuth `503`, verifies recovery on retry, verifies exhaustion after three attempts, and confirms `401` errors are not retried.
+- Grafana Cloud and Kubernetes logs: one Gmail OAuth `503` at `2026-06-30T15:04:31Z`, followed by a successful Gmail poll at `2026-06-30T15:14:43Z`.
+- `REQUIREMENTS.md` and `README.md`: document retry boundaries, metrics behavior, and final-error surfacing.
+
 ## Current Shape
 
 1. `REQUIREMENTS.md` defines the product, security, provider, and platform requirements.
@@ -368,3 +379,4 @@ Key evidence:
 17. Functional runtime changes are delivered by pushing to GitHub, waiting for CI, and deploying the same commit to AWS.
 18. Public GitHub readiness redacts account, project, workspace, path, and deployment identifiers from tracked files.
 19. Notification configuration updates must pass unit tests, deploy to AWS in the same task, and receive live rollout/configuration verification.
+20. Provider HTTP requests use bounded retries for transient failures before poll and Slack errors are surfaced.
