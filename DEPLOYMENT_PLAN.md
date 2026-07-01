@@ -96,6 +96,7 @@ Current helper scripts:
 - `scripts/aws/build-and-push-image.sh`
 - `scripts/kubernetes/apply-manifests.sh`
 - `scripts/aws/deploy-to-aws.sh`
+- `scripts/aws/deploy-image.sh`
 
 ## Phase 2: Data Stack Changes
 
@@ -355,13 +356,51 @@ Current implementation:
 
 ## Phase 9: Deployment Flow
 
-Use the reference deployment gate. Functional runtime changes must move through both GitHub and AWS: push the exact source commit to GitHub, wait for CI to pass, deploy that same commit to AWS, and verify that the live Kubernetes image tag matches the commit SHA. Documentation-only changes may stop after GitHub and CI.
+Use the reference deployment gate. The exact source commit that passes CI on `main` is the commit that gets deployed. Documentation-only changes may stop after GitHub and CI.
+
+### Automated per-commit image rollout (default path)
+
+Pushing or merging a commit to `main` runs the `CI` GitHub Actions workflow. When CI completes successfully, the `Deploy` GitHub Actions workflow (`.github/workflows/deploy.yml`) is triggered automatically via `workflow_run` and:
+
+1. Checks out the exact CI-passing commit (`github.event.workflow_run.head_sha`).
+2. Authenticates to AWS with GitHub OIDC by assuming an IAM deploy role (no static credentials in the repo).
+3. Updates kubeconfig for the target EKS cluster (name supplied by the `EKS_CLUSTER_NAME` secret) in `us-east-1`.
+4. Runs `scripts/aws/deploy-image.sh`, which builds and pushes the commit's image to ECR tagged with the short commit SHA, updates `deployment/priority-email-service` in the `priority-email` namespace, and waits for `kubectl rollout status` to finish.
+
+The workflow only deploys when the CI run concluded with `success` and originated from a `push` event on `main`, preserving the deployment gate: the exact CI-passing commit is what reaches AWS.
+
+Required GitHub Actions secrets (configured on the repository or on the `production` environment):
+
+- `AWS_ACCOUNT_ID`: the target AWS account ID, used to build the ECR registry host at runtime.
+- `AWS_DEPLOY_ROLE_ARN`: an IAM role ARN such as `arn:aws:iam::<aws-account-id>:role/priority-email-deploy` whose trust policy permits the GitHub OIDC provider for this repository, and whose permissions allow ECR push plus `eks:DescribeCluster` and kubectl access sufficient to roll out the deployment.
+- `EKS_CLUSTER_NAME`: the name of the target EKS cluster. Kept as a secret so the real cluster name stays out of the repository, matching the placeholder policy used in documentation.
+
+Kubernetes-side access for the deploy role is granted by `infra/k8s/deploy-rbac.yaml` (namespace-scoped `Role`/`RoleBinding` for the `priority-email-deployers` group, limited to deployment patch/watch plus replicaset and pod reads) together with a `mapRoles` entry for the deploy role in the `kube-system` `aws-auth` ConfigMap. The aws-auth mapping is operator-managed cluster state, not applied by CI.
+
+After an automated rollout, verify the live image and rollout:
+
+```bash
+kubectl rollout status deployment/priority-email-service -n priority-email
+kubectl logs -n priority-email deployment/priority-email-service
+kubectl get deployment priority-email-service -n priority-email -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
+kubectl get pods -n priority-email -l app.kubernetes.io/name=priority-email-service
+```
+
+### Operator bootstrap path (secrets, filters, infrastructure)
+
+Bootstrap tasks that need real secrets and local filter value files remain a local operator responsibility and are intentionally NOT run in CI. These include the runtime secret sync, the observability secret, the filter ConfigMap, the EBS CSI add-on, and the initial manifest apply. Operators run these locally via:
+
+```bash
+scripts/aws/deploy-to-aws.sh
+```
+
+`scripts/aws/deploy-to-aws.sh` is the operator/bootstrap path; the `Deploy` GitHub Actions workflow is the automated per-commit image rollout. Both deploy the CI-green source revision.
 
 1. Run local tests for filter loading, matching, deduplication, and notification formatting.
 2. Build the container.
 3. Push the exact code revision to GitHub.
 4. Wait for CI to pass.
-5. For functional runtime changes, run:
+5. For operator bootstrap of secrets, filters, and infrastructure, run:
 
 ```bash
 scripts/aws/deploy-to-aws.sh

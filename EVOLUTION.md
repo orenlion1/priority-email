@@ -358,6 +358,19 @@ Key evidence:
 - Grafana Cloud and Kubernetes logs: one Gmail OAuth `503` at `2026-06-30T15:04:31Z`, followed by a successful Gmail poll at `2026-06-30T15:14:43Z`.
 - `REQUIREMENTS.md` and `README.md`: document retry boundaries, metrics behavior, and final-error surfacing.
 
+### July 1, 2026: Automate AWS Deployment From CI
+
+AWS deployment moved from a manual local script to an automated GitHub Actions workflow triggered on successful CI. When the `CI` workflow completes successfully for a push to `main`, the new `Deploy` workflow builds and pushes the CI-passing commit's image to ECR and rolls out the EKS deployment, authenticating with GitHub OIDC instead of static credentials. Operator bootstrap of secrets, filters, and infrastructure remains a local task.
+
+Key evidence:
+
+- `.github/workflows/deploy.yml`: runs on `workflow_run` after `CI` succeeds on `main`, deploys only the exact CI-passing commit, and uses GitHub OIDC (`id-token: write`) to assume an IAM deploy role from `AWS_DEPLOY_ROLE_ARN`.
+- `scripts/aws/deploy-image.sh`: builds/pushes the commit image to ECR and rolls out `deployment/priority-email-service` in the `priority-email` namespace, waiting for rollout status.
+- `scripts/aws/ensure-ecr.sh` and `scripts/aws/build-and-push-image.sh`: fall back to the ambient credential chain (GitHub Actions OIDC) when no local `AWS_PROFILE` is set, while still supporting the operator profile workflow.
+- `.github/workflows/ci.yml`: shell-syntax check now also validates `scripts/aws/deploy-image.sh`.
+- `infra/k8s/deploy-rbac.yaml`: namespace-scoped `Role`/`RoleBinding` granting the deploy role's `priority-email-deployers` group only deployment patch/watch plus replicaset and pod reads; the role is mapped in the `kube-system` `aws-auth` ConfigMap by operators.
+- `AGENTS.md` and `DEPLOYMENT_PLAN.md`: record the automated per-commit rollout, the required `AWS_ACCOUNT_ID`, `AWS_DEPLOY_ROLE_ARN`, and `EKS_CLUSTER_NAME` GitHub secrets, and the retained operator/bootstrap path via `scripts/aws/deploy-to-aws.sh`.
+
 ## Current Shape
 
 1. `REQUIREMENTS.md` defines the product, security, provider, and platform requirements.

@@ -95,7 +95,9 @@ Grafana Cloud ingest values must be present in gitignored `.env` before deployme
 - `GRAFANA_CLOUD_INSTANCE_ID`
 - `GRAFANA_CLOUD_API_KEY`
 
-For functional runtime changes, push the source commit to GitHub first, wait for CI to pass, then run the AWS deploy script from that same commit. Documentation-only changes do not require an AWS rollout.
+Merges to `main` auto-deploy: after CI passes, the `Deploy` GitHub Actions workflow (`.github/workflows/deploy.yml`) automatically builds, pushes, and rolls out the CI-passing commit's image using GitHub OIDC. This requires the `AWS_ACCOUNT_ID` and `AWS_DEPLOY_ROLE_ARN` GitHub Actions secrets. The `scripts/aws/deploy-to-aws.sh` script remains the local operator/bootstrap path for secrets, filters, and infrastructure.
+
+For functional runtime changes, push the source commit to GitHub first and wait for CI to pass; the automated `Deploy` workflow then rolls out that same commit. Operator bootstrap of secrets/filters/infra still runs locally via the AWS deploy script. Documentation-only changes do not require an AWS rollout.
 
 ## Documentation
 

@@ -14,6 +14,7 @@ REQUIRED = {
     "deployment.yaml": ("Deployment", "priority-email-service"),
     "network-policy.yaml": ("NetworkPolicy", "default-deny-ingress"),
     "poddisruptionbudget.yaml": ("PodDisruptionBudget", "priority-email-service"),
+    "deploy-rbac.yaml": ("Role", "priority-email-deployer"),
 }
 
 
