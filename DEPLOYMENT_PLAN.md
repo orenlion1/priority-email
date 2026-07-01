@@ -364,7 +364,7 @@ Pushing or merging a commit to `main` runs the `CI` GitHub Actions workflow. Whe
 
 1. Checks out the exact CI-passing commit (`github.event.workflow_run.head_sha`).
 2. Authenticates to AWS with GitHub OIDC by assuming an IAM deploy role (no static credentials in the repo).
-3. Updates kubeconfig for the `example-platform` EKS cluster in `us-east-1`.
+3. Updates kubeconfig for the target EKS cluster (name supplied by the `EKS_CLUSTER_NAME` secret) in `us-east-1`.
 4. Runs `scripts/aws/deploy-image.sh`, which builds and pushes the commit's image to ECR tagged with the short commit SHA, updates `deployment/priority-email-service` in the `priority-email` namespace, and waits for `kubectl rollout status` to finish.
 
 The workflow only deploys when the CI run concluded with `success` and originated from a `push` event on `main`, preserving the deployment gate: the exact CI-passing commit is what reaches AWS.
@@ -373,6 +373,9 @@ Required GitHub Actions secrets (configured on the repository or on the `product
 
 - `AWS_ACCOUNT_ID`: the target AWS account ID, used to build the ECR registry host at runtime.
 - `AWS_DEPLOY_ROLE_ARN`: an IAM role ARN such as `arn:aws:iam::<aws-account-id>:role/priority-email-deploy` whose trust policy permits the GitHub OIDC provider for this repository, and whose permissions allow ECR push plus `eks:DescribeCluster` and kubectl access sufficient to roll out the deployment.
+- `EKS_CLUSTER_NAME`: the name of the target EKS cluster. Kept as a secret so the real cluster name stays out of the repository, matching the placeholder policy used in documentation.
+
+Kubernetes-side access for the deploy role is granted by `infra/k8s/deploy-rbac.yaml` (namespace-scoped `Role`/`RoleBinding` for the `priority-email-deployers` group, limited to deployment patch/watch plus replicaset and pod reads) together with a `mapRoles` entry for the deploy role in the `kube-system` `aws-auth` ConfigMap. The aws-auth mapping is operator-managed cluster state, not applied by CI.
 
 After an automated rollout, verify the live image and rollout:
 

@@ -368,7 +368,8 @@ Key evidence:
 - `scripts/aws/deploy-image.sh`: builds/pushes the commit image to ECR and rolls out `deployment/priority-email-service` in the `priority-email` namespace, waiting for rollout status.
 - `scripts/aws/ensure-ecr.sh` and `scripts/aws/build-and-push-image.sh`: fall back to the ambient credential chain (GitHub Actions OIDC) when no local `AWS_PROFILE` is set, while still supporting the operator profile workflow.
 - `.github/workflows/ci.yml`: shell-syntax check now also validates `scripts/aws/deploy-image.sh`.
-- `AGENTS.md` and `DEPLOYMENT_PLAN.md`: record the automated per-commit rollout, the required `AWS_ACCOUNT_ID` and `AWS_DEPLOY_ROLE_ARN` GitHub secrets, and the retained operator/bootstrap path via `scripts/aws/deploy-to-aws.sh`.
+- `infra/k8s/deploy-rbac.yaml`: namespace-scoped `Role`/`RoleBinding` granting the deploy role's `priority-email-deployers` group only deployment patch/watch plus replicaset and pod reads; the role is mapped in the `kube-system` `aws-auth` ConfigMap by operators.
+- `AGENTS.md` and `DEPLOYMENT_PLAN.md`: record the automated per-commit rollout, the required `AWS_ACCOUNT_ID`, `AWS_DEPLOY_ROLE_ARN`, and `EKS_CLUSTER_NAME` GitHub secrets, and the retained operator/bootstrap path via `scripts/aws/deploy-to-aws.sh`.
 
 ## Current Shape
 

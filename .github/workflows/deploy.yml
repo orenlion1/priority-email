@@ -25,7 +25,7 @@ jobs:
     environment: production
     env:
       AWS_REGION: us-east-1
-      EKS_CLUSTER_NAME: example-platform
+      EKS_CLUSTER_NAME: ${{ secrets.EKS_CLUSTER_NAME }}
       AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
     steps:
       - name: Check out the CI-tested commit

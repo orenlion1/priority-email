@@ -1,0 +1,39 @@
+# RBAC for the GitHub Actions deploy IAM role (priority-email-deploy). The
+# role is mapped to the priority-email-deployers group in the kube-system
+# aws-auth ConfigMap and may only update and watch the service deployment in
+# this namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: priority-email-deployer
+  namespace: priority-email
+  labels:
+    app.kubernetes.io/name: priority-email-service
+    app.kubernetes.io/component: deploy-rbac
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: priority-email-deployer
+  namespace: priority-email
+  labels:
+    app.kubernetes.io/name: priority-email-service
+    app.kubernetes.io/component: deploy-rbac
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: priority-email-deployer
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: priority-email-deployers
