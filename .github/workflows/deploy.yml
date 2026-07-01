@@ -9,17 +9,57 @@ on:
 permissions:
   contents: read
   id-token: write
+  actions: read
 
 concurrency:
   group: deploy-priority-email
   cancel-in-progress: false
 
 jobs:
-  deploy:
-    # Only deploy the exact commit that just passed CI on main.
+  changes:
+    # Only consider the exact commit that just passed CI on main.
     if: >-
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      deploy: ${{ steps.filter.outputs.deploy }}
+    steps:
+      - name: Check out the CI-tested commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Diff against the last deployed commit
+        id: filter
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          # Deploy only when image-affecting paths changed since the last
+          # successful Deploy: Dockerfile, scripts/**, filters/**, or this
+          # workflow itself. Range diff keeps multi-commit pushes and
+          # previously skipped docs-only commits accounted for.
+          base="$(gh run list --workflow Deploy --status success --branch main --limit 1 --json headSha --jq '.[0].headSha // empty')"
+          deploy=false
+          if [ -z "$base" ] || ! git cat-file -e "$base" 2>/dev/null; then
+            echo "No usable previous deploy base; deploying."
+            deploy=true
+          else
+            changed="$(git diff --name-only "$base" "$HEAD_SHA")"
+            echo "Changed files since $base:"; echo "$changed"
+            if echo "$changed" | grep -qE '^(Dockerfile|scripts/|filters/|\.github/workflows/deploy\.yml)'; then
+              deploy=true
+            fi
+          fi
+          echo "deploy=$deploy" >> "$GITHUB_OUTPUT"
+          echo "Will deploy: $deploy"
+
+  deploy:
+    needs: changes
+    if: needs.changes.outputs.deploy == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: production

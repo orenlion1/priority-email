@@ -362,10 +362,11 @@ Use the reference deployment gate. The exact source commit that passes CI on `ma
 
 Pushing or merging a commit to `main` runs the `CI` GitHub Actions workflow. When CI completes successfully, the `Deploy` GitHub Actions workflow (`.github/workflows/deploy.yml`) is triggered automatically via `workflow_run` and:
 
-1. Checks out the exact CI-passing commit (`github.event.workflow_run.head_sha`).
-2. Authenticates to AWS with GitHub OIDC by assuming an IAM deploy role (no static credentials in the repo).
-3. Updates kubeconfig for the target EKS cluster (name supplied by the `EKS_CLUSTER_NAME` secret) in `us-east-1`.
-4. Runs `scripts/aws/deploy-image.sh`, which builds and pushes the commit's image to ECR tagged with the short commit SHA, updates `deployment/priority-email-service` in the `priority-email` namespace, and waits for `kubectl rollout status` to finish.
+1. Detects whether image-affecting paths (`Dockerfile`, `scripts/**`, `filters/**`, or `deploy.yml` itself) changed since the last successfully deployed commit; documentation-only pushes skip the rollout entirely.
+2. Checks out the exact CI-passing commit (`github.event.workflow_run.head_sha`).
+3. Authenticates to AWS with GitHub OIDC by assuming an IAM deploy role (no static credentials in the repo).
+4. Updates kubeconfig for the target EKS cluster (name supplied by the `EKS_CLUSTER_NAME` secret) in `us-east-1`.
+5. Runs `scripts/aws/deploy-image.sh`, which builds and pushes the commit's image to ECR tagged with the short commit SHA, updates `deployment/priority-email-service` in the `priority-email` namespace, and waits for `kubectl rollout status` to finish.
 
 The workflow only deploys when the CI run concluded with `success` and originated from a `push` event on `main`, preserving the deployment gate: the exact CI-passing commit is what reaches AWS.
 
