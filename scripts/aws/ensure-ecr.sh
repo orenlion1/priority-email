@@ -16,30 +16,35 @@ env_value() {
 region="${AWS_REGION:-$(env_value AWS_REGION)}"
 region="${region:-us-east-1}"
 profile="${AWS_PROFILE:-$(env_value AWS_PROFILE)}"
-: "${profile:?Set AWS_PROFILE in your local .env or shell.}"
 
-if ! aws ecr describe-repositories \
+# Use a local AWS profile when one is configured (operator workflow); fall
+# back to the ambient credential chain (e.g. GitHub Actions OIDC) otherwise.
+run_aws() {
+  if [[ -n "$profile" ]]; then
+    aws --profile "$profile" "$@"
+  else
+    aws "$@"
+  fi
+}
+
+if ! run_aws ecr describe-repositories \
   --repository-names "$repo_name" \
-  --region "$region" \
-  --profile "$profile" >/dev/null 2>&1; then
-  aws ecr create-repository \
+  --region "$region" >/dev/null 2>&1; then
+  run_aws ecr create-repository \
     --repository-name "$repo_name" \
     --image-scanning-configuration scanOnPush=true \
     --encryption-configuration encryptionType=AES256 \
     --tags Key=Application,Value=priority-email Key=Service,Value=priority-email Key=Stack,Value=ecr \
-    --region "$region" \
-    --profile "$profile" >/dev/null
+    --region "$region" >/dev/null
 fi
 
-aws ecr put-image-tag-mutability \
+run_aws ecr put-image-tag-mutability \
   --repository-name "$repo_name" \
   --image-tag-mutability MUTABLE \
-  --region "$region" \
-  --profile "$profile" >/dev/null
+  --region "$region" >/dev/null
 
-aws ecr describe-repositories \
+run_aws ecr describe-repositories \
   --repository-names "$repo_name" \
   --region "$region" \
-  --profile "$profile" \
   --query 'repositories[0].repositoryUri' \
   --output text
