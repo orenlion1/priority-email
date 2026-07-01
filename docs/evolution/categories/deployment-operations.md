@@ -34,6 +34,7 @@
 | 2026-06-21 | Priority Email added structured logs, OTLP metrics/traces, and a dedicated Grafana Alloy collector in the `priority-email` namespace. | `scripts/telemetry.py`, `infra/k8s/alloy.yaml`, `DEPLOYMENT_PLAN.md` |
 | 2026-06-22 | Production checkpoint and notification-dedupe state moved to the `priority-email-state` persistent volume. | `infra/k8s/state-pvc.yaml`, `infra/k8s/deployment.yaml`, `DEPLOYMENT_PLAN.md` |
 | 2026-06-30 | One Gmail OAuth `503 internal_failure` recovered on the next poll; provider HTTP requests now retry bounded transient failures before surfacing poll and Slack errors. | `scripts/poll-email.py`, `tests/test_poll_email.py`, `REQUIREMENTS.md`, `README.md`, `EVOLUTION.md` |
+| 2026-07-01 | AWS deployment moved from a manual local script to an automated GitHub Actions `Deploy` workflow triggered on successful CI, using GitHub OIDC to deploy the CI-passing commit's image while operator bootstrap of secrets/filters/infra stays local. | `.github/workflows/deploy.yml`, `scripts/aws/deploy-image.sh`, `scripts/aws/ensure-ecr.sh`, `scripts/aws/build-and-push-image.sh`, `AGENTS.md`, `DEPLOYMENT_PLAN.md`, `EVOLUTION.md` |
 
 ## Current Operations Shape
 
