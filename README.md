@@ -62,7 +62,7 @@ For local OTEL testing, run an OTLP HTTP collector on `localhost:4318` or set `O
 ```bash
 python3 -m unittest discover tests
 python3 -m compileall scripts tests
-bash -n scripts/aws/ensure-ecr.sh scripts/aws/ensure-ebs-csi-addon.sh scripts/aws/sync-runtime-secret.sh scripts/aws/build-and-push-image.sh scripts/aws/deploy-to-aws.sh scripts/kubernetes/apply-manifests.sh
+bash -n scripts/aws/ensure-ecr.sh scripts/aws/ensure-ebs-csi-addon.sh scripts/aws/sync-runtime-secret.sh scripts/aws/build-and-push-image.sh scripts/aws/deploy-to-aws.sh scripts/kubernetes/apply-manifests.sh scripts/filters/add-filter-op.sh scripts/filters/decrypt-filters.sh scripts/filters/sync-filters-from-ops.sh
 sh -n scripts/run-poller-loop.sh
 python3 scripts/ci/k8s-static-check.py
 python3 scripts/ci/secret-scan.py
@@ -71,13 +71,27 @@ docker build --platform linux/amd64 -t priority-email-service:ci .
 
 ## Secrets And Filters
 
-Do not commit local secrets or real filter values.
+Do not commit local secrets or plaintext filter values.
 
 - Copy `.env.example` to `.env` for local secrets.
-- Commit only `filters/*.txt.template`.
-- Keep real filter values in ignored `filters/*.txt` files.
-- Keep Google OAuth client secret JSON files local and ignored.
+- Commit only `filters/*.txt.template`, the age public key `filters/age-recipients.pub`, and encrypted ops under `filters/ops/`.
+- Keep plaintext filter values in ignored `filters/*.txt` files; they are derived from the encrypted ops log.
+- Keep Google OAuth client secret JSON files local and ignored. Never commit the age private key.
 - Set `AWS_PROFILE` and `AWS_ACCOUNT_ID` in local `.env`; do not copy static AWS access keys into this repo.
+
+## Updating Filters (from anywhere)
+
+The source of truth for filter values is the age-encrypted, append-only ops log in `filters/ops/`. Adding or removing a filter needs only the committed public key, so it works from any device — including a coding agent driven from a phone — with no human approval step:
+
+```bash
+scripts/filters/add-filter-op.sh add domain example.com
+scripts/filters/add-filter-op.sh remove sender-name "Jane Smith"
+git add filters/ops && git commit -m "chore: update filters" && git push
+```
+
+Once CI passes on `main`, the `Deploy` workflow's `sync-filters` job decrypts the ops with the `AGE_SECRET_KEY` secret, assembles the filter files, applies the `priority-email-filters` ConfigMap, restarts the worker, and checksum-verifies the live ConfigMap without printing filter values.
+
+Operators can regenerate local plaintext filter files with `scripts/filters/decrypt-filters.sh` (requires the age key at `~/.config/priority-email/age.key`, or `AGE_SECRET_KEY`/`AGE_KEY_FILE`).
 
 ## AWS Deploy
 
@@ -95,7 +109,7 @@ Grafana Cloud ingest values must be present in gitignored `.env` before deployme
 - `GRAFANA_CLOUD_INSTANCE_ID`
 - `GRAFANA_CLOUD_API_KEY`
 
-Merges to `main` auto-deploy: after CI passes, the `Deploy` GitHub Actions workflow (`.github/workflows/deploy.yml`) automatically builds, pushes, and rolls out the CI-passing commit's image using GitHub OIDC. Documentation-only changes skip the rollout: the workflow diffs against the last deployed commit and only deploys when `Dockerfile`, `scripts/**`, `filters/**`, or the workflow itself changed. This requires the `AWS_ACCOUNT_ID` and `AWS_DEPLOY_ROLE_ARN` GitHub Actions secrets. The `scripts/aws/deploy-to-aws.sh` script remains the local operator/bootstrap path for secrets, filters, and infrastructure.
+Merges to `main` auto-deploy: after CI passes, the `Deploy` GitHub Actions workflow (`.github/workflows/deploy.yml`) automatically builds, pushes, and rolls out the CI-passing commit's image using GitHub OIDC, and syncs the live filter ConfigMap when the encrypted ops log changed. Documentation-only changes skip both jobs: the workflow diffs against the last deployed commit and only acts when `Dockerfile`, `scripts/**`, `filters/**`, or the workflow itself changed. This requires the `AWS_ACCOUNT_ID`, `AWS_DEPLOY_ROLE_ARN`, and `AGE_SECRET_KEY` GitHub Actions secrets. The `scripts/aws/deploy-to-aws.sh` script remains the local operator/bootstrap path for secrets and infrastructure.
 
 For functional runtime changes, push the source commit to GitHub first and wait for CI to pass; the automated `Deploy` workflow then rolls out that same commit. Operator bootstrap of secrets/filters/infra still runs locally via the AWS deploy script. Documentation-only changes do not require an AWS rollout.
 

@@ -7,7 +7,9 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 SKIP_DIRS = {".git", ".state", "__pycache__"}
-SKIP_SUFFIXES = {".png", ".pyc"}
+# .age files are armored age ciphertext; the base64 payload can randomly
+# collide with token-shaped patterns, and plaintext never lives there.
+SKIP_SUFFIXES = {".png", ".pyc", ".age"}
 FORBIDDEN_PATH = re.compile(
     r"(^|/)(\.env$|\.env\.(?!example)|client_secret_|filters/.*\.txt$|\.state|__pycache__|.*secret.*\.yaml$)"
 )

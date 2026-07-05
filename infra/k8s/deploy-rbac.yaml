@@ -1,7 +1,7 @@
 # RBAC for the GitHub Actions deploy IAM role (priority-email-deploy). The
 # role is mapped to the priority-email-deployers group in the kube-system
-# aws-auth ConfigMap and may only update and watch the service deployment in
-# this namespace.
+# aws-auth ConfigMap and may only update and watch the service deployment and
+# manage the filter ConfigMap in this namespace.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -20,6 +20,15 @@ rules:
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "patch", "update"]
+    resourceNames: ["priority-email-filters"]
+  # create cannot be limited by resourceName; it only fires if the filter
+  # ConfigMap is missing, since apply falls back to create.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

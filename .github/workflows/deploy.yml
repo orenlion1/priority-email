@@ -25,6 +25,7 @@ jobs:
     timeout-minutes: 10
     outputs:
       deploy: ${{ steps.filter.outputs.deploy }}
+      filters: ${{ steps.filter.outputs.filters }}
     steps:
       - name: Check out the CI-tested commit
         uses: actions/checkout@v7
@@ -38,24 +39,31 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
-          # Deploy only when image-affecting paths changed since the last
-          # successful Deploy: Dockerfile, scripts/**, filters/**, or this
-          # workflow itself. Range diff keeps multi-commit pushes and
+          # Roll the image only when image-affecting paths changed since the
+          # last successful Deploy: Dockerfile, scripts/**, filter templates,
+          # or this workflow itself. Sync live filters when the encrypted
+          # filter ops log changed. Range diff keeps multi-commit pushes and
           # previously skipped docs-only commits accounted for.
           base="$(gh run list --workflow Deploy --status success --branch main --limit 1 --json headSha --jq '.[0].headSha // empty')"
           deploy=false
+          filters=false
           if [ -z "$base" ] || ! git cat-file -e "$base" 2>/dev/null; then
             echo "No usable previous deploy base; deploying."
             deploy=true
+            filters=true
           else
             changed="$(git diff --name-only "$base" "$HEAD_SHA")"
             echo "Changed files since $base:"; echo "$changed"
-            if echo "$changed" | grep -qE '^(Dockerfile|scripts/|filters/|\.github/workflows/deploy\.yml)'; then
+            if echo "$changed" | grep -qE '^(Dockerfile|scripts/|filters/[^/]+$|\.github/workflows/deploy\.yml)'; then
               deploy=true
+            fi
+            if echo "$changed" | grep -qE '^(filters/ops/|scripts/filters/|\.github/workflows/deploy\.yml)'; then
+              filters=true
             fi
           fi
           echo "deploy=$deploy" >> "$GITHUB_OUTPUT"
-          echo "Will deploy: $deploy"
+          echo "filters=$filters" >> "$GITHUB_OUTPUT"
+          echo "Will deploy image: $deploy; will sync filters: $filters"
 
   deploy:
     needs: changes
@@ -84,3 +92,39 @@ jobs:
 
       - name: Build, push, and roll out image
         run: scripts/aws/deploy-image.sh
+
+  sync-filters:
+    needs: [changes, deploy]
+    # Run after the image deploy when both fire, but do not require it.
+    if: >-
+      always() &&
+      needs.changes.outputs.filters == 'true' &&
+      (needs.deploy.result == 'success' || needs.deploy.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    env:
+      AWS_REGION: us-east-1
+      EKS_CLUSTER_NAME: ${{ secrets.EKS_CLUSTER_NAME }}
+    steps:
+      - name: Check out the CI-tested commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Install age
+        run: sudo apt-get update -q && sudo apt-get install -y -q age
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION"
+
+      - name: Decrypt ops, apply filter ConfigMap, restart, and verify
+        env:
+          AGE_SECRET_KEY: ${{ secrets.AGE_SECRET_KEY }}
+        run: scripts/filters/sync-filters-from-ops.sh
