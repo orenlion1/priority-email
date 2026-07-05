@@ -91,6 +91,8 @@ git add filters/ops && git commit -m "chore: update filters" && git push
 
 Once CI passes on `main`, the `Deploy` workflow's `sync-filters` job decrypts the ops with the `AGE_SECRET_KEY` secret, assembles the filter files, applies the `priority-email-filters` ConfigMap, restarts the worker, and checksum-verifies the live ConfigMap without printing filter values.
 
+One practical note for remote agents: they need the `age` binary (one `apt-get`/`brew install` in their workspace) and push access to `main`.
+
 Operators can regenerate local plaintext filter files with `scripts/filters/decrypt-filters.sh` (requires the age key at `~/.config/priority-email/age.key`, or `AGE_SECRET_KEY`/`AGE_KEY_FILE`).
 
 ## AWS Deploy
