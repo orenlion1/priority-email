@@ -33,7 +33,8 @@ Priority Email helps users avoid missing important messages that are buried acro
 - Priority Email Kubernetes manifests include a namespace-local persistent volume claim for production checkpoint and notification-dedupe state.
 - Local runtime secrets live in gitignored `.env`; `.env.example` is the committed-safe template.
 - AWS access uses the local AWS CLI profile `example-platform` for account `<aws-account-id>`; static AWS access keys must not be copied into this repo.
-- Real filter values live in gitignored `filters/*.txt`; only `filters/*.txt.template` files are safe to push to GitHub.
+- Real filter values live in gitignored `filters/*.txt`; only `filters/*.txt.template` files, the age public key `filters/age-recipients.pub`, and age-encrypted operation files under `filters/ops/` are safe to push to GitHub.
+- Filter updates are delivered remotely: an encrypted add/remove operation committed to `main` is assembled, applied to the live filter ConfigMap, and rolled out automatically by the `Deploy` workflow with no human approval step and no dependency on any specific workstation.
 - Evolution history is tracked in `EVOLUTION.md`, category files, and generated Graphviz flow diagrams under `docs/evolution/diagrams/`.
 - Team skills for spec-driven development, test-driven development, code review, simplification, security hardening, and git workflow are imported into `AGENTS.md`.
 
@@ -149,15 +150,24 @@ Users must be able to create sender filters using one or more of the following c
 - Domain filters should be stored in `filters/domain-filters.txt`.
 - Exact sender email address filters should be stored in `filters/email-address-filters.txt`.
 - Sender display name filters should be stored in `filters/sender-name-filters.txt`.
-- Real local filter value files must be gitignored and must not be pushed to GitHub.
+- Real local plaintext filter value files must be gitignored and must not be pushed to GitHub.
 - GitHub should receive only safe filter templates:
   - `filters/domain-filters.txt.template`
   - `filters/email-address-filters.txt.template`
   - `filters/sender-name-filters.txt.template`
-- Local setup should copy the template files to the corresponding `.txt` files before adding real filter values.
 - Each non-empty, non-comment line should represent one filter value.
 - New filter entries should be appended at the head of the relevant file so the latest additions appear first.
 - The system should normalize whitespace and ignore blank lines or lines beginning with `#`.
+
+### Encrypted Filter Operations Log
+
+- The durable source of truth for filter values is an append-only log of age-encrypted operations committed under `filters/ops/*.age`.
+- Encrypting an operation must require only the committed public key `filters/age-recipients.pub`, so any coding agent or operator can add or remove a filter from any device without holding decryption keys.
+- Each operation is one JSON object with `action` (`baseline`, `add`, or `remove`), `kind` (`domain`, `email-address`, or `sender-name`), and a `value` (or `values` list for baselines).
+- Assembly must replay operations in chronological order, collapse whitespace, deduplicate case-insensitively (treating a leading `@` on domains as equivalent), keep newest entries first, and reject malformed operations without echoing filter values.
+- Committing an encrypted operation to `main` must result in the live filter ConfigMap being updated and the worker restarted automatically once CI passes, with no human approval step.
+- The age private key must exist only in the operator's local key file and the `AGE_SECRET_KEY` GitHub Actions secret, never in the repository.
+- Local plaintext filter files are a derived artifact regenerated from the ops log with `scripts/filters/decrypt-filters.sh`.
 
 ## Notification Requirements
 

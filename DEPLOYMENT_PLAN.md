@@ -288,8 +288,9 @@ ConfigMap strategy:
   - `filters/sender-name-filters.txt`
 - Mount it read-only into the container, for example `/app/filters`.
 - Keep newest filter entries at the head of each file.
-- Update filters by editing the source files, recreating/applying the ConfigMap, and restarting or rolling the deployment so the service reloads the mounted files predictably.
-- Commit only `filters/*.txt.template` files to GitHub. Never commit real `filters/*.txt` values.
+- The source of truth for filter values is the age-encrypted operations log committed under `filters/ops/*.age` (see "Encrypted filter delivery" in Phase 9). Plaintext `filters/*.txt` files stay gitignored and are regenerated from the ops log.
+- Update filters by appending an encrypted op with `scripts/filters/add-filter-op.sh` and pushing to `main`; the `Deploy` workflow reassembles the filter files, applies the ConfigMap, and restarts the deployment so the service reloads the mounted files predictably.
+- Commit only `filters/*.txt.template` files, `filters/age-recipients.pub`, and encrypted `filters/ops/*.age` files to GitHub. Never commit plaintext `filters/*.txt` values or the age private key.
 
 State persistence strategy:
 
@@ -362,21 +363,36 @@ Use the reference deployment gate. The exact source commit that passes CI on `ma
 
 Pushing or merging a commit to `main` runs the `CI` GitHub Actions workflow. When CI completes successfully, the `Deploy` GitHub Actions workflow (`.github/workflows/deploy.yml`) is triggered automatically via `workflow_run` and:
 
-1. Detects whether image-affecting paths (`Dockerfile`, `scripts/**`, `filters/**`, or `deploy.yml` itself) changed since the last successfully deployed commit; documentation-only pushes skip the rollout entirely.
+1. Detects which paths changed since the last successfully deployed commit: image-affecting paths (`Dockerfile`, `scripts/**`, top-level `filters/` templates, or `deploy.yml` itself) trigger the image rollout, and the encrypted filter ops log (`filters/ops/**` or `scripts/filters/**`) triggers the filter sync job. Documentation-only pushes skip both.
 2. Checks out the exact CI-passing commit (`github.event.workflow_run.head_sha`).
 3. Authenticates to AWS with GitHub OIDC by assuming an IAM deploy role (no static credentials in the repo).
 4. Updates kubeconfig for the target EKS cluster (name supplied by the `EKS_CLUSTER_NAME` secret) in `us-east-1`.
 5. Runs `scripts/aws/deploy-image.sh`, which builds and pushes the commit's image to ECR tagged with the short commit SHA, updates `deployment/priority-email-service` in the `priority-email` namespace, and waits for `kubectl rollout status` to finish.
+6. When the filter ops log changed, the `sync-filters` job decrypts the ops with the `AGE_SECRET_KEY` secret, assembles the filter files in the runner, applies the `priority-email-filters` ConfigMap, restarts the deployment, and verifies the live ConfigMap by checksum without printing filter values.
 
 The workflow only deploys when the CI run concluded with `success` and originated from a `push` event on `main`, preserving the deployment gate: the exact CI-passing commit is what reaches AWS.
+
+### Encrypted filter delivery (no-local-machine filter updates)
+
+Filter values are private but must be deliverable from anywhere — including a coding agent driven from a phone — without a human approval step and without plaintext ever entering the public repository or public Action logs:
+
+- `filters/age-recipients.pub` commits the age public key. Encryption needs only this key, so any agent or operator can produce a valid encrypted operation.
+- `filters/ops/*.age` is an append-only log of armored, age-encrypted operations. Each op is a single JSON object: `{"action": "add"|"remove"|"baseline", "kind": "domain"|"email-address"|"sender-name", "value"|"values": ...}`. Timestamp-prefixed filenames keep replay order chronological.
+- `scripts/filters/add-filter-op.sh <add|remove> <kind> <value>` validates the value (via a dry run through the assembler) and writes an encrypted op. Committing and pushing that file to `main` is the entire remote update flow; CI and the `Deploy` workflow do the rest.
+- `scripts/filters/assemble-filters.py` replays decrypted ops (baseline, then adds/removes) with whitespace collapsing, case-insensitive dedupe, leading-`@` domain equivalence, and newest-first ordering. Malformed ops abort assembly and error messages never include filter values.
+- `scripts/filters/sync-filters-from-ops.sh` is the deploy-side path: decrypt, assemble in a temp dir, apply the ConfigMap, restart, checksum-verify. It prints only entry counts and match booleans.
+- `scripts/filters/decrypt-filters.sh [output-dir]` is the operator path to regenerate plaintext files locally; it needs the age identity (`AGE_SECRET_KEY`, `AGE_KEY_FILE`, or `~/.config/priority-email/age.key`).
+- The age private key exists in exactly two places: the operator's local `~/.config/priority-email/age.key` and the `AGE_SECRET_KEY` GitHub Actions secret. It must never be committed; `.gitignore` blocks `age.key` and `*.agekey` as a safety net.
+- The `.age` armor payload is skipped by the CI secret scan to avoid random base64 collisions with token patterns; plaintext filter paths remain forbidden.
 
 Required GitHub Actions secrets (configured on the repository or on the `production` environment):
 
 - `AWS_ACCOUNT_ID`: the target AWS account ID, used to build the ECR registry host at runtime.
 - `AWS_DEPLOY_ROLE_ARN`: an IAM role ARN such as `arn:aws:iam::<aws-account-id>:role/priority-email-deploy` whose trust policy permits the GitHub OIDC provider for this repository, and whose permissions allow ECR push plus `eks:DescribeCluster` and kubectl access sufficient to roll out the deployment.
 - `EKS_CLUSTER_NAME`: the name of the target EKS cluster. Kept as a secret so the real cluster name stays out of the repository, matching the placeholder policy used in documentation.
+- `AGE_SECRET_KEY`: the age identity that decrypts `filters/ops/*.age` in the `sync-filters` job. Set from the operator key with `grep AGE-SECRET-KEY ~/.config/priority-email/age.key | gh secret set AGE_SECRET_KEY`.
 
-Kubernetes-side access for the deploy role is granted by `infra/k8s/deploy-rbac.yaml` (namespace-scoped `Role`/`RoleBinding` for the `priority-email-deployers` group, limited to deployment patch/watch plus replicaset and pod reads) together with a `mapRoles` entry for the deploy role in the `kube-system` `aws-auth` ConfigMap. The aws-auth mapping is operator-managed cluster state, not applied by CI.
+Kubernetes-side access for the deploy role is granted by `infra/k8s/deploy-rbac.yaml` (namespace-scoped `Role`/`RoleBinding` for the `priority-email-deployers` group, limited to deployment patch/watch, replicaset and pod reads, and management of the `priority-email-filters` ConfigMap) together with a `mapRoles` entry for the deploy role in the `kube-system` `aws-auth` ConfigMap. The aws-auth mapping is operator-managed cluster state, not applied by CI.
 
 After an automated rollout, verify the live image and rollout:
 
@@ -389,7 +405,7 @@ kubectl get pods -n priority-email -l app.kubernetes.io/name=priority-email-serv
 
 ### Operator bootstrap path (secrets, filters, infrastructure)
 
-Bootstrap tasks that need real secrets and local filter value files remain a local operator responsibility and are intentionally NOT run in CI. These include the runtime secret sync, the observability secret, the filter ConfigMap, the EBS CSI add-on, and the initial manifest apply. Operators run these locally via:
+Bootstrap tasks that need real secrets remain a local operator responsibility and are intentionally NOT run in CI. These include the runtime secret sync, the observability secret, the EBS CSI add-on, and the initial manifest apply. Routine filter updates no longer need the local machine (see "Encrypted filter delivery"); during bootstrap, `scripts/kubernetes/apply-manifests.sh` regenerates the local filter files from the encrypted ops log when the operator age key is present, so bootstrap never applies stale local copies. Operators run bootstrap locally via:
 
 ```bash
 scripts/aws/deploy-to-aws.sh

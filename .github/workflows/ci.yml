@@ -28,7 +28,7 @@ jobs:
 
       - name: Shell syntax
         run: |
-          bash -n scripts/aws/ensure-ecr.sh scripts/aws/ensure-ebs-csi-addon.sh scripts/aws/sync-runtime-secret.sh scripts/aws/build-and-push-image.sh scripts/aws/deploy-to-aws.sh scripts/aws/deploy-image.sh scripts/kubernetes/apply-manifests.sh
+          bash -n scripts/aws/ensure-ecr.sh scripts/aws/ensure-ebs-csi-addon.sh scripts/aws/sync-runtime-secret.sh scripts/aws/build-and-push-image.sh scripts/aws/deploy-to-aws.sh scripts/aws/deploy-image.sh scripts/kubernetes/apply-manifests.sh scripts/filters/add-filter-op.sh scripts/filters/decrypt-filters.sh scripts/filters/sync-filters-from-ops.sh
           sh -n scripts/run-poller-loop.sh
 
       - name: Kubernetes static checks

@@ -5,9 +5,12 @@
 client_secret_*.apps.googleusercontent.com*
 client_secret_*.json
 
-# Local email filter values. Commit only *.template files.
+# Local email filter values. Commit only *.template files and the encrypted
+# ops log under filters/ops/. The age private key must never enter the repo.
 filters/*.txt
 !filters/*.txt.template
+*.agekey
+age.key
 
 # Local Kubernetes/AWS secret material
 *secrets*.yaml

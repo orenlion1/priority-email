@@ -12,6 +12,17 @@ required_filters=(
   "$root_dir/filters/sender-name-filters.txt"
 )
 
+# The encrypted ops log in filters/ops/ is the source of truth for filter
+# values. Regenerate the local plaintext files from it when an age identity
+# is available so bootstrap never applies stale local copies.
+if compgen -G "$root_dir/filters/ops/*.age" > /dev/null; then
+  if [[ -n "${AGE_SECRET_KEY:-}" || -f "${AGE_KEY_FILE:-$HOME/.config/priority-email/age.key}" ]]; then
+    "$root_dir/scripts/filters/decrypt-filters.sh" "$root_dir/filters"
+  else
+    echo "Warning: filters/ops/ exists but no age identity found; using existing local filter files" >&2
+  fi
+fi
+
 for path in "${required_filters[@]}"; do
   if [[ ! -f "$path" ]]; then
     echo "Missing filter file: $path" >&2

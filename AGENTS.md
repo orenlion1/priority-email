@@ -27,7 +27,7 @@ Applied working rules:
 - Keep CI green on every pull request and push to `main`; quality gates should run before deployment.
 - For functional runtime changes, push the source commit to GitHub and wait for CI to pass on `main`; the image rollout then happens automatically via the `Deploy` GitHub Actions workflow, which builds, pushes, and rolls out the CI-passing commit. Operator bootstrap of secrets/filters/infra still uses `scripts/aws/deploy-to-aws.sh` locally. Verify the live image and rollout after deployment.
 - For every notification configuration update, run the unit tests; after they pass and the commit reaches `main`, the `Deploy` GitHub Actions workflow rolls out the CI-passing commit automatically, while operator bootstrap of secrets/filters/infra stays local via `scripts/aws/deploy-to-aws.sh`. Verify the rollout, live image, and changed live configuration without printing private filter values or secrets.
-- For filter-only updates, keep real values uncommitted and deploy them with the current CI-green source revision. Never leave a successful notification update waiting for a future deployment.
+- For filter-only updates, never commit plaintext values. Append an age-encrypted operation with `scripts/filters/add-filter-op.sh <add|remove> <domain|email-address|sender-name> <value>`, commit the new `filters/ops/*.age` file, and push to `main`. Once CI passes, the `Deploy` workflow's `sync-filters` job applies the live ConfigMap and restarts the worker automatically — no local machine or human approval is involved. Never leave a successful notification update waiting for a future deployment.
 - Do not add CI steps that require production secrets. Deployment credentials belong in AWS/GitHub secrets or local operator profiles, not workflow files.
 
 ## Required Documentation Updates
@@ -40,8 +40,8 @@ Applied working rules:
 
 ## Secret And Filter Safety
 
-- Never commit `.env`, `.env.*`, real OAuth client secret files, generated secret YAML, Terraform variable files, or real filter value files.
-- Commit only `.env.example` and `filters/*.txt.template` files.
+- Never commit `.env`, `.env.*`, real OAuth client secret files, generated secret YAML, Terraform variable files, plaintext filter value files, or the age private key.
+- Commit only `.env.example`, `filters/*.txt.template`, the age public key `filters/age-recipients.pub`, and encrypted `filters/ops/*.age` operation files.
 - If a secret-like file is discovered in the worktree, add an ignore pattern before any future GitHub push and mention the risk in the work summary.
 
 ## Platform Standards

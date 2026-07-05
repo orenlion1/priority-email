@@ -371,6 +371,21 @@ Key evidence:
 - `infra/k8s/deploy-rbac.yaml`: namespace-scoped `Role`/`RoleBinding` granting the deploy role's `priority-email-deployers` group only deployment patch/watch plus replicaset and pod reads; the role is mapped in the `kube-system` `aws-auth` ConfigMap by operators.
 - `AGENTS.md` and `DEPLOYMENT_PLAN.md`: record the automated per-commit rollout, the required `AWS_ACCOUNT_ID`, `AWS_DEPLOY_ROLE_ARN`, and `EKS_CLUSTER_NAME` GitHub secrets, and the retained operator/bootstrap path via `scripts/aws/deploy-to-aws.sh`.
 
+### July 5, 2026: Deliver Filter Updates Remotely With Encrypted Ops
+
+Filter updates were decoupled from the operator workstation and from any specific coding harness. The durable source of truth for filter values became an append-only log of age-encrypted operations committed under `filters/ops/*.age`. Encrypting an add/remove operation requires only the committed public key, so any coding agent — Cursor, Claude Code, Codex, driven from a laptop or a phone — can post a filter change by running one script and pushing to `main`. The `Deploy` workflow gained a `sync-filters` job that decrypts the ops with the `AGE_SECRET_KEY` GitHub secret, assembles the filter files, applies the `priority-email-filters` ConfigMap, restarts the worker, and checksum-verifies the live ConfigMap without printing filter values. No human approval step or local machine is involved after the push.
+
+Key evidence:
+
+- `filters/age-recipients.pub` and `filters/ops/*.age`: committed age public key and encrypted baseline operations migrated from the previously local-only filter files.
+- `scripts/filters/add-filter-op.sh`: validates and encrypts a single add/remove operation using only the public key.
+- `scripts/filters/assemble-filters.py` with `tests/test_assemble_filters.py`: replays baseline/add/remove ops with normalization, case-insensitive dedupe, leading-`@` domain equivalence, newest-first ordering, and value-free error messages.
+- `scripts/filters/sync-filters-from-ops.sh` and `scripts/filters/decrypt-filters.sh`: deploy-side ConfigMap sync with checksum verification, and the operator path for regenerating local plaintext files.
+- `.github/workflows/deploy.yml`: split change detection into image rollout and filter sync, with the new `sync-filters` job running on filter ops changes.
+- `infra/k8s/deploy-rbac.yaml`: deploy role extended to manage the `priority-email-filters` ConfigMap.
+- `scripts/ci/secret-scan.py` and `.gitignore`: `.age` armor excluded from token-pattern scanning while plaintext filter paths and the age private key remain forbidden.
+- `REQUIREMENTS.md`, `DEPLOYMENT_PLAN.md`, `README.md`, `AGENTS.md`, `CLAUDE.md`: record the encrypted filter ops pipeline as the standard filter delivery path.
+
 ## Current Shape
 
 1. `REQUIREMENTS.md` defines the product, security, provider, and platform requirements.
@@ -393,3 +408,4 @@ Key evidence:
 18. Public GitHub readiness redacts account, project, workspace, path, and deployment identifiers from tracked files.
 19. Notification configuration updates must pass unit tests, deploy to AWS in the same task, and receive live rollout/configuration verification.
 20. Provider HTTP requests use bounded retries for transient failures before poll and Slack errors are surfaced.
+21. Filter values live as age-encrypted operations in `filters/ops/`; any coding agent can post an encrypted filter change from any device, and the `Deploy` workflow applies it to the live ConfigMap automatically with no human approval.
