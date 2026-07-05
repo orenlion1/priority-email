@@ -386,6 +386,16 @@ Key evidence:
 - `scripts/ci/secret-scan.py` and `.gitignore`: `.age` armor excluded from token-pattern scanning while plaintext filter paths and the age private key remain forbidden.
 - `REQUIREMENTS.md`, `DEPLOYMENT_PLAN.md`, `README.md`, `AGENTS.md`, `CLAUDE.md`: record the encrypted filter ops pipeline as the standard filter delivery path.
 
+### July 5, 2026: Retire The Local Full-Deploy Script
+
+With the GitHub-based deployment model owning both image rollout and filter delivery, the local full-deploy script `scripts/aws/deploy-to-aws.sh` was removed. Its only remaining responsibilities — runtime secret sync, the observability secret, the EBS CSI add-on, and the manifest apply — moved to a slimmer `scripts/aws/bootstrap-aws.sh` that never builds or pushes images and preserves the currently deployed ECR image when reapplying manifests, so bootstrap can no longer roll a live deployment back to the placeholder image.
+
+Key evidence:
+
+- `scripts/aws/bootstrap-aws.sh`: secrets, add-on, and manifest bootstrap only; records and restores the live image around the manifest apply.
+- `scripts/aws/deploy-to-aws.sh`: deleted; local image build/push/rollout is fully superseded by the `Deploy` workflow.
+- `.github/workflows/ci.yml`, `README.md`, `DEPLOYMENT_PLAN.md`, `AGENTS.md`, `CLAUDE.md`: references updated to the bootstrap script and the GitHub-owned rollout path.
+
 ## Current Shape
 
 1. `REQUIREMENTS.md` defines the product, security, provider, and platform requirements.

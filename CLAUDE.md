@@ -15,7 +15,8 @@
  workflow decrypts with the `AGE_SECRET_KEY` secret, applies the ConfigMap, restarts the
  worker, and checksum-verifies — never commit plaintext filter values or the age private key.
 - **Operator-only surface.** Runtime secrets, the observability secret, and infrastructure
- add-ons are NOT applied by CI — bootstrap them locally with `scripts/aws/deploy-to-aws.sh`.
+ add-ons are NOT applied by CI — bootstrap them locally with `scripts/aws/bootstrap-aws.sh`
+ (secrets, EBS CSI add-on, and manifests only; it never builds images).
 - **Placeholder policy.** Real resource identifiers (account ID, cluster name, role ARN) live in
   GitHub repository secrets (`AWS_ACCOUNT_ID`, `AWS_DEPLOY_ROLE_ARN`, `EKS_CLUSTER_NAME`) and the
   local gitignored `.env`; committed files must keep placeholders — the CI secret scan fails on

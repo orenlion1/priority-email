@@ -8,9 +8,9 @@ set -euo pipefail
 # the automated path used by GitHub Actions after CI passes, using AWS
 # credentials from the environment (OIDC) rather than a local profile.
 #
-# Runtime secrets, filter ConfigMaps, and infrastructure add-ons are managed
-# separately by operators via scripts/aws/deploy-to-aws.sh and are not
-# touched here.
+# Runtime secrets and infrastructure add-ons are managed separately by
+# operators via scripts/aws/bootstrap-aws.sh; filter ConfigMap sync is owned
+# by the Deploy workflow's sync-filters job. Neither is touched here.
 
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 namespace="priority-email"

@@ -95,7 +95,7 @@ Current helper scripts:
 - `scripts/aws/sync-runtime-secret.sh`
 - `scripts/aws/build-and-push-image.sh`
 - `scripts/kubernetes/apply-manifests.sh`
-- `scripts/aws/deploy-to-aws.sh`
+- `scripts/aws/bootstrap-aws.sh`
 - `scripts/aws/deploy-image.sh`
 
 ## Phase 2: Data Stack Changes
@@ -408,32 +408,30 @@ kubectl get pods -n priority-email -l app.kubernetes.io/name=priority-email-serv
 Bootstrap tasks that need real secrets remain a local operator responsibility and are intentionally NOT run in CI. These include the runtime secret sync, the observability secret, the EBS CSI add-on, and the initial manifest apply. Routine filter updates no longer need the local machine (see "Encrypted filter delivery"); during bootstrap, `scripts/kubernetes/apply-manifests.sh` regenerates the local filter files from the encrypted ops log when the operator age key is present, so bootstrap never applies stale local copies. Operators run bootstrap locally via:
 
 ```bash
-scripts/aws/deploy-to-aws.sh
+scripts/aws/bootstrap-aws.sh
 ```
 
-`scripts/aws/deploy-to-aws.sh` is the operator/bootstrap path; the `Deploy` GitHub Actions workflow is the automated per-commit image rollout. Both deploy the CI-green source revision.
+`scripts/aws/bootstrap-aws.sh` is the operator/bootstrap path for secrets and infrastructure only; it does not build or push images. The `Deploy` GitHub Actions workflow owns the per-commit image rollout and filter sync. The bootstrap script preserves the currently deployed ECR image when reapplying manifests; on a fresh cluster with no live image, roll one out by pushing an image-affecting commit to `main` or rerunning the latest successful `Deploy` run.
 
 1. Run local tests for filter loading, matching, deduplication, and notification formatting.
-2. Build the container.
-3. Push the exact code revision to GitHub.
-4. Wait for CI to pass.
-5. For operator bootstrap of secrets, filters, and infrastructure, run:
+2. Push the exact code revision to GitHub and wait for CI to pass; the `Deploy` workflow builds, pushes, and rolls out the commit's image.
+3. For operator bootstrap of secrets and infrastructure, run:
 
 ```bash
-scripts/aws/deploy-to-aws.sh
+scripts/aws/bootstrap-aws.sh
 ```
 
-6. Confirm the deploy script built and pushed the ECR image for the passing commit.
-7. Apply Terraform changes in stack order when infrastructure changes require it:
+4. Confirm the `Deploy` workflow rolled out the ECR image for the passing commit.
+5. Apply Terraform changes in stack order when infrastructure changes require it:
    - data
    - workload-iam
-8. Update kubeconfig when needed:
+6. Update kubeconfig when needed:
 
 ```bash
 aws eks update-kubeconfig --name example-platform --region us-east-1
 ```
 
-9. Apply Kubernetes manifests manually only when not using the deploy script:
+7. Apply Kubernetes manifests manually only when not using the bootstrap script:
 
 ```bash
 kubectl apply -f infra/k8s/namespace.yaml
@@ -443,7 +441,7 @@ kubectl apply -f infra/k8s/deployment.yaml
 kubectl apply -f infra/k8s/poddisruptionbudget.yaml
 ```
 
-10. Verify rollout:
+8. Verify rollout:
 
 ```bash
 kubectl rollout status deployment/priority-email-service -n priority-email
