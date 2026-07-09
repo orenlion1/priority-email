@@ -796,6 +796,49 @@ class GmailPollerTests(unittest.TestCase):
         self.assertEqual([{"type": "domain", "value": "myworkday.com"}], exact_matches)
         self.assertEqual([], non_matches)
 
+    def test_domain_filter_supports_wildcards(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            filter_dir = Path(tmpdir)
+            (filter_dir / "domain-filters.txt").write_text("coralogix*.com\n")
+            (filter_dir / "email-address-filters.txt").write_text("")
+            (filter_dir / "sender-name-filters.txt").write_text("")
+
+            filters = poll_email.load_sender_filters({"EMAIL_FILTER_DIR": str(filter_dir)})
+
+        expected = [{"type": "domain", "value": "coralogix*.com"}]
+        # "*" spans any characters between "coralogix" and ".com", including dots.
+        self.assertEqual(
+            expected,
+            poll_email.matching_filters(
+                {"from": "Notify <noreply@coralogix.com>"}, filters
+            ),
+        )
+        self.assertEqual(
+            expected,
+            poll_email.matching_filters(
+                {"from": "Notify <noreply@coralogix.comeet-notifications.com>"}, filters
+            ),
+        )
+        self.assertEqual(
+            expected,
+            poll_email.matching_filters(
+                {"from": "Notify <noreply@coralogixstatus.com>"}, filters
+            ),
+        )
+        # The pattern is anchored: it must start with "coralogix" and end ".com".
+        self.assertEqual(
+            [],
+            poll_email.matching_filters(
+                {"from": "Spoof <noreply@notcoralogix.com>"}, filters
+            ),
+        )
+        self.assertEqual(
+            [],
+            poll_email.matching_filters(
+                {"from": "Spoof <noreply@coralogix.net>"}, filters
+            ),
+        )
+
     def test_initialization_skips_matched_message_slack_by_default(self):
         telemetry = poll_email.Telemetry({})
         state = {}

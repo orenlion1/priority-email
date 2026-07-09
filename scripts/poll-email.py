@@ -2,6 +2,7 @@
 import argparse
 import datetime as dt
 import email.utils
+import fnmatch
 import imaplib
 import json
 import os
@@ -412,13 +413,24 @@ def parse_sender(from_header):
     return display_name, address, domain
 
 
+def domain_filter_matches(domain, value):
+    # Values containing shell-style wildcards ('*' or '?') are matched with
+    # fnmatch against the full sender domain, so "coralogix*.com" matches any
+    # characters between "coralogix" and ".com". Plain values keep exact and
+    # subdomain-suffix matching. Both sides are already lowercased upstream, so
+    # fnmatchcase avoids OS-dependent case folding.
+    if "*" in value or "?" in value:
+        return fnmatch.fnmatchcase(domain, value)
+    return domain == value or domain.endswith("." + value)
+
+
 def matching_filters(message, filters):
     display_name, address, domain = parse_sender(message.get("from", ""))
     display_name_key = display_name.lower()
     matches = []
     if domain:
         for value in filters.get("domain", []):
-            if domain == value or domain.endswith("." + value):
+            if domain_filter_matches(domain, value):
                 matches.append({"type": "domain", "value": value})
     if address:
         for value in filters.get("email_address", []):
