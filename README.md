@@ -9,12 +9,9 @@ Priority Email monitors connected mail accounts for important sender matches, th
 - Yahoo Mail and Apple iCloud Mail pollers are stubbed for future implementation.
 - Slack posting is validated through the `Priority Email` Slack app.
 - Incremental messages matching sender-name, exact email, or domain filters post Slack summaries when `SLACK_BOT_TOKEN` and `SLACK_CHANNEL_ID` are configured.
-- AWS deployment is live in the reference AWS account through the `example-platform` AWS CLI profile.
-- The live Kubernetes worker runs in the dedicated `priority-email` namespace.
-- Production checkpoint and notification-dedupe state is stored on the `priority-email-state` persistent volume mounted at `/var/lib/priority-email`.
-- Observability is standardized on Grafana Labs tooling and services.
-- The worker emits structured JSON logs with `service=priority-email-service`, OTLP traces, and OTLP metrics.
-- A namespace-local Grafana Alloy collector receives Priority Email OTLP signals and collects Priority Email pod logs.
+- **Serverless since 2026-07-10.** The poller runs as a scheduled AWS Lambda (Python 3.13) invoked by EventBridge every 5 minutes; each invocation is one poll cycle. It replaced the looping pod on the ensemble-grafana EKS cluster, decommissioned in the ensemble-retail cost-reduction migration. See `DEPLOYMENT_PLAN.md`.
+- Checkpoint and notification-dedupe state, and the assembled filter files, live in the `priority-email-state-<account>` S3 bucket (was: a PVC + a ConfigMap).
+- Observability is standardized on Grafana Labs tooling: the Lambda emits structured JSON logs with `service=priority-email-service` plus OTLP traces/metrics directly to Grafana Cloud, and CloudWatch retains function logs.
 
 ## Local Commands
 

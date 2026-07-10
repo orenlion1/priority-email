@@ -1,5 +1,13 @@
 # Priority Email AWS Deployment Plan
 
+> **Serverless since 2026-07-10.** The poller now runs as a scheduled AWS Lambda (Python 3.13,
+> EventBridge every 5 minutes; one poll cycle per invocation) with state and filters in the
+> `priority-email-state-<account>` S3 bucket. It replaced the EKS pod after the ensemble-grafana
+> cluster was decommissioned. Provisioning is `infra/terraform`; deploy is build-zip →
+> `update-function-code` (Deploy workflow). The Kubernetes phases below (Data Stack, Workload
+> IAM, Kubernetes Manifests, Ingress, Network Policies) are retained as historical context and
+> no longer apply; the runtime-secret, filter-ops, and observability guidance still holds.
+
 ## Reference Deployment
 
 Use the AWS deployment pattern from `<local-ensemble-repo>` as the target model.

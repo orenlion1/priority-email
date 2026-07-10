@@ -396,6 +396,28 @@ Key evidence:
 - `scripts/aws/deploy-to-aws.sh`: deleted; local image build/push/rollout is fully superseded by the `Deploy` workflow.
 - `.github/workflows/ci.yml`, `README.md`, `DEPLOYMENT_PLAN.md`, `AGENTS.md`, `CLAUDE.md`: references updated to the bootstrap script and the GitHub-owned rollout path.
 
+### 2026-07-10: Serverless — EKS to Scheduled Lambda
+
+The looping worker pod lived on the shared `ensemble-grafana` EKS cluster, which was
+decommissioned in the ensemble-retail cost-reduction migration. Rather than stand up new
+Kubernetes, the poller moved to a scheduled AWS Lambda following the same serverless pattern:
+EventBridge Scheduler invokes a Python 3.13 function every 5 minutes, and each invocation runs
+exactly one `poll-email.py` cycle — the unit `run-poller-loop.sh` used to loop. The poller is
+stdlib-only, so it packages as a plain zip (boto3 ships in the runtime); no container image.
+
+Durable state that lived on a k8s PVC, and the filter files that came from a ConfigMap, both
+moved to the `priority-email-state-<account>` S3 bucket: the handler hydrates `/tmp` from S3 at
+the start of a cycle and writes the checkpoint back at the end. Runtime secrets still come from
+the `priority-email/runtime` Secrets Manager secret. The Deploy workflow now builds the zip and
+runs `update-function-code`, and syncs filter ops to S3 instead of applying a ConfigMap.
+
+Key evidence:
+
+- `scripts/aws/lambda_function.py`, `scripts/aws/build-lambda-zip.sh`, `scripts/aws/deploy-lambda.sh`: the handler, packaging, and code-deploy path.
+- `infra/terraform/`: Lambda, S3 state/filters bucket, EventBridge schedule, least-privilege IAM, and a $5 Budgets alarm.
+- `scripts/filters/sync-filters-to-s3.sh`, `.github/workflows/deploy.yml`, `.github/workflows/ci.yml`: filter sync to S3 and the Kubernetes/Docker-free CI and Deploy.
+- Retired: `Dockerfile`, `infra/k8s/**`, `scripts/kubernetes/**`, the ECR/EKS bootstrap scripts, and `sync-filters-from-ops.sh`.
+
 ## Current Shape
 
 1. `REQUIREMENTS.md` defines the product, security, provider, and platform requirements.
