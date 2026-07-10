@@ -78,6 +78,10 @@ def handler(event, context):
         **os.environ,
         "EMAIL_FILTER_DIR": FILTER_DIR,
         "EMAIL_POLL_STATE_FILE": STATE_PATH,
+        # The audit log default (.state/email-poller.log) resolves under the read-only
+        # /var/task in Lambda; keep it on the writable /tmp. Structured logs still go to
+        # stdout -> CloudWatch, so the local file is per-invocation scratch.
+        "EMAIL_POLL_LOG_FILE": "/tmp/email-poller.log",
     }
     proc = subprocess.run(
         [sys.executable, POLL_SCRIPT, "--env-file", ENV_PATH, "--state-file", STATE_PATH],
