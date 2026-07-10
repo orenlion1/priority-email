@@ -39,11 +39,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
-          # Roll the image only when image-affecting paths changed since the
-          # last successful Deploy: Dockerfile, scripts/**, filter templates,
-          # or this workflow itself. Sync live filters when the encrypted
-          # filter ops log changed. Range diff keeps multi-commit pushes and
-          # previously skipped docs-only commits accounted for.
+          # Roll the Lambda code only when code-affecting paths changed since the last
+          # successful Deploy: scripts/**, filter templates, or this workflow. Sync live
+          # filters (to S3) when the encrypted filter ops log or filter tooling changed.
+          # Range diff keeps multi-commit pushes and skipped docs-only commits accounted for.
           base="$(gh run list --workflow Deploy --status success --branch main --limit 1 --json headSha --jq '.[0].headSha // empty')"
           deploy=false
           filters=false
@@ -54,7 +53,7 @@ jobs:
           else
             changed="$(git diff --name-only "$base" "$HEAD_SHA")"
             echo "Changed files since $base:"; echo "$changed"
-            if echo "$changed" | grep -qE '^(Dockerfile|scripts/|filters/[^/]+$|\.github/workflows/deploy\.yml)'; then
+            if echo "$changed" | grep -qE '^(scripts/|filters/[^/]+$|\.github/workflows/deploy\.yml)'; then
               deploy=true
             fi
             if echo "$changed" | grep -qE '^(filters/ops/|scripts/filters/|\.github/workflows/deploy\.yml)'; then
@@ -63,18 +62,16 @@ jobs:
           fi
           echo "deploy=$deploy" >> "$GITHUB_OUTPUT"
           echo "filters=$filters" >> "$GITHUB_OUTPUT"
-          echo "Will deploy image: $deploy; will sync filters: $filters"
+          echo "Will deploy Lambda code: $deploy; will sync filters to S3: $filters"
 
   deploy:
     needs: changes
     if: needs.changes.outputs.deploy == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     environment: production
     env:
       AWS_REGION: us-east-1
-      EKS_CLUSTER_NAME: ${{ secrets.EKS_CLUSTER_NAME }}
-      AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
     steps:
       - name: Check out the CI-tested commit
         uses: actions/checkout@v7
@@ -87,15 +84,12 @@ jobs:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Update kubeconfig
-        run: aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION"
-
-      - name: Build, push, and roll out image
-        run: scripts/aws/deploy-image.sh
+      - name: Build zip and update Lambda code
+        run: scripts/aws/deploy-lambda.sh
 
   sync-filters:
     needs: [changes, deploy]
-    # Run after the image deploy when both fire, but do not require it.
+    # Run after the code deploy when both fire, but do not require it.
     if: >-
       always() &&
       needs.changes.outputs.filters == 'true' &&
@@ -105,7 +99,7 @@ jobs:
     environment: production
     env:
       AWS_REGION: us-east-1
-      EKS_CLUSTER_NAME: ${{ secrets.EKS_CLUSTER_NAME }}
+      AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
     steps:
       - name: Check out the CI-tested commit
         uses: actions/checkout@v7
@@ -121,10 +115,8 @@ jobs:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Update kubeconfig
-        run: aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION"
-
-      - name: Decrypt ops, apply filter ConfigMap, restart, and verify
+      - name: Decrypt ops, assemble filters, sync to S3, and verify
         env:
           AGE_SECRET_KEY: ${{ secrets.AGE_SECRET_KEY }}
-        run: scripts/filters/sync-filters-from-ops.sh
+          STATE_BUCKET: priority-email-state-${{ secrets.AWS_ACCOUNT_ID }}
+        run: scripts/filters/sync-filters-to-s3.sh
