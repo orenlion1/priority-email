@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+import urllib.parse
 from unittest import mock
 
 
@@ -559,6 +560,30 @@ class GmailPollerTests(unittest.TestCase):
             ],
             poller.page_calls,
         )
+
+    def test_incremental_query_uses_epoch_checkpoint_not_calendar_day(self):
+        poller = poll_email.GmailPoller()
+        with mock.patch.object(
+            poll_email, "metered_provider_request", return_value={}
+        ) as request:
+            poller.list_messages_page({}, 50, 1783975479)
+
+        query = urllib.parse.parse_qs(
+            urllib.parse.urlparse(request.call_args.kwargs["url"]).query
+        )["q"][0]
+        self.assertEqual("in:anywhere after:1783975479", query)
+
+    def test_initial_query_omits_after_clause(self):
+        poller = poll_email.GmailPoller()
+        with mock.patch.object(
+            poll_email, "metered_provider_request", return_value={}
+        ) as request:
+            poller.list_messages_page({}, 50, None)
+
+        query = urllib.parse.parse_qs(
+            urllib.parse.urlparse(request.call_args.kwargs["url"]).query
+        )["q"][0]
+        self.assertEqual("in:anywhere", query)
 
     def test_provider_request_error_posts_to_slack_and_saves_error_state(self):
         with tempfile.TemporaryDirectory() as tmpdir:

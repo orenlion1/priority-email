@@ -670,10 +670,6 @@ def utc_now_iso():
     return dt.datetime.now(dt.UTC).replace(microsecond=0).isoformat()
 
 
-def epoch_to_query_date(epoch_seconds):
-    return dt.datetime.fromtimestamp(epoch_seconds, dt.UTC).strftime("%Y/%m/%d")
-
-
 def parse_email_date(value):
     parsed = email.utils.parsedate_to_datetime(value) if value else None
     if parsed is None:
@@ -746,7 +742,7 @@ class GmailPoller(BaseProviderPoller):
     ):
         params = {"maxResults": max_results, "q": "in:anywhere"}
         if checkpoint:
-            params["q"] = f"in:anywhere after:{epoch_to_query_date(checkpoint)}"
+            params["q"] = f"in:anywhere after:{int(checkpoint)}"
         if page_token:
             params["pageToken"] = page_token
         url = f"{GMAIL_API}/messages?{urllib.parse.urlencode(params)}"
