@@ -440,6 +440,32 @@ Key evidence:
 - `CLAUDE.md`, `AGENTS.md`: operator `init -backend-config` step and the runtime-state vs
   Terraform-state bucket distinction.
 
+### 2026-07-19: Apply Terraform From CI Under Scoped OIDC Roles
+
+Infrastructure stopped being applied from the operator's laptop. Following the orenlion1 standard
+(core-infra `docs/standards/terraform-ci-oidc.md`, first proven in winnow), `infra/terraform/ci.tf`
+now defines two GitHub-OIDC roles — a read-only `priority-email-terraform-plan` assumable by any run,
+and a write `priority-email-terraform-apply` assumable only from the required-reviewer
+`terraform-apply` GitHub environment. The new `Infra Apply` workflow plans on every PR touching
+`infra/terraform/**` (posting the plan as a PR comment) and applies on `main` behind the environment
+gate. No long-lived AWS keys exist; the apply role's trust `sub` is pinned `StringEquals` to that
+exact environment, so editing the workflow cannot bypass the human approval.
+
+The apply role is least-privilege — scoped to priority-email's own Lambda, scheduler, log group,
+budget, S3 state/filters bucket, and the `priority-email-*` IAM roles, plus its single Terraform
+state object and `.tflock`. It is explicitly denied the runtime secret and the app bucket's object
+contents (both runtime-only). Lambda **code** stays on the `Deploy`/`update-function-code` path:
+Terraform ignores the function's `filename`/`source_code_hash`, so an infra apply never rolls code
+back. The roles are bootstrapped by a one-time laptop apply (they can't exist before the first run),
+after which `AWS_PLAN_ROLE_ARN`/`AWS_APPLY_ROLE_ARN`/`TF_STATE_BUCKET` repo variables let CI take over.
+
+Key evidence:
+
+- `infra/terraform/ci.tf`: the two OIDC roles, trust policies, and scoped apply policy.
+- `.github/workflows/infra-apply.yml`: plan-on-PR / apply-on-main under the roles, S3-native locking.
+- `infra/terraform/main.tf`: `ignore_changes = [filename, source_code_hash]` on the function.
+- `CLAUDE.md`, `AGENTS.md`: the reversed "infra is applied by CI, not laptops" posture.
+
 ## Current Shape
 
 1. `REQUIREMENTS.md` defines the product, security, provider, and platform requirements.

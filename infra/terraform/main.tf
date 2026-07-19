@@ -111,6 +111,14 @@ resource "aws_lambda_function" "poller" {
 
   depends_on = [aws_cloudwatch_log_group.lambda]
   tags       = local.tags
+
+  # Lambda CODE stays on the fast `update-function-code` deploy path
+  # (.github/workflows/deploy.yml), which rolls out the CI-passing commit's zip.
+  # Terraform owns the function's INFRA config only; ignore the code so an infra
+  # apply never rolls the live code back to whatever zip the infra runner built.
+  lifecycle {
+    ignore_changes = [filename, source_code_hash]
+  }
 }
 
 # --- EventBridge Scheduler: one poll cycle every interval (replaces the pod loop) ---
