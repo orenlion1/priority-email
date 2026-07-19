@@ -418,6 +418,28 @@ Key evidence:
 - `scripts/filters/sync-filters-to-s3.sh`, `.github/workflows/deploy.yml`, `.github/workflows/ci.yml`: filter sync to S3 and the Kubernetes/Docker-free CI and Deploy.
 - Retired: `Dockerfile`, `infra/k8s/**`, `scripts/kubernetes/**`, the ECR/EKS bootstrap scripts, and `sync-filters-from-ops.sh`.
 
+### 2026-07-19: Adopt The core-infra Shared Terraform Backend
+
+Terraform state moved off the operator's local disk into the shared
+`ensemble-grafana-tf-state-<account>` S3 bucket that core-infra's `stacks/ci-terraform-apply`
+owns, under key `stacks/priority-email/terraform.tfstate` — the same remote-backend pattern
+winnow already follows. `infra/terraform/versions.tf` now declares a partial `backend "s3"`
+block (`key` + `encrypt` committed; `bucket`/`region` passed via `-backend-config` at init), and
+state locking is S3-native (`use_lockfile`), matching core-infra's move off the DynamoDB lock
+table. The existing 18-resource local state was migrated with `terraform init -migrate-state` and
+verified byte-for-byte identical (all 18 resources) against a pre-migration backup.
+
+This aligns priority-email with the account's single-bootstrap-per-account convention: one
+protected state bucket, no per-repo state bucket. The poller's runtime state and filters are
+unaffected — they still live in the app's own `priority-email-state-<account>` bucket; only the
+Terraform backend moved.
+
+Key evidence:
+
+- `infra/terraform/versions.tf`: the partial `backend "s3"` block (key `stacks/priority-email`).
+- `CLAUDE.md`, `AGENTS.md`: operator `init -backend-config` step and the runtime-state vs
+  Terraform-state bucket distinction.
+
 ## Current Shape
 
 1. `REQUIREMENTS.md` defines the product, security, provider, and platform requirements.
