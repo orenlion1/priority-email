@@ -18,18 +18,27 @@
   age public key), commit the new `filters/ops/*.age` file, push to `main`. The Deploy workflow
   decrypts with the `AGE_SECRET_KEY` secret, assembles the filters, uploads them to the S3 filter
   store, and checksum-verifies — never commit plaintext filter values or the age private key.
-- **Operator-only surface.** Runtime secrets and infrastructure are NOT applied by CI — sync the
-  runtime secret with `scripts/aws/bootstrap-aws.sh` and provision the Lambda/S3/schedule with
-  `terraform -chdir=infra/terraform apply`. Terraform state lives in the shared
-  `ensemble-grafana-tf-state-<account>` bucket (key `stacks/priority-email/terraform.tfstate`,
-  S3-native `use_lockfile` locking) that core-infra owns — the same bucket winnow uses. A fresh
-  checkout must init the backend first (bucket/region are not committed):
+- **Infrastructure is applied by CI, not laptops.** Terraform runs in GitHub Actions under scoped
+  OIDC roles (orenlion1 standard — see core-infra `docs/standards/terraform-ci-oidc.md`): the
+  `Infra Apply` workflow plans on every PR touching `infra/terraform/**` (read-only role) and
+  applies on `main` under a write role that is only assumable from the required-reviewer
+  `terraform-apply` environment. Lambda **code** still ships via the `Deploy` workflow's
+  `update-function-code`; Terraform ignores the function's zip, so an infra apply never rolls code.
+  Terraform state lives in the shared `ensemble-grafana-tf-state-<account>` bucket (key
+  `stacks/priority-email/terraform.tfstate`, S3-native `use_lockfile` locking) that core-infra owns.
+- **Operator surface (bootstrap + runtime secret only).** Sync the runtime secret with
+  `scripts/aws/bootstrap-aws.sh`. Terraform's CI roles are created by a one-time laptop apply that
+  bootstraps them (they can't exist before the first run); after it, set the `AWS_PLAN_ROLE_ARN` /
+  `AWS_APPLY_ROLE_ARN` / `TF_STATE_BUCKET` repo variables and CI owns apply thereafter:
 
   ```bash
   terraform -chdir=infra/terraform init \
     -backend-config="bucket=ensemble-grafana-tf-state-<account>" \
     -backend-config="region=us-east-1" \
     -backend-config="use_lockfile=true"
+  terraform -chdir=infra/terraform apply    # creates the plan + apply roles
+  gh variable set AWS_PLAN_ROLE_ARN  --body "$(terraform -chdir=infra/terraform output -raw terraform_plan_role_arn)"
+  gh variable set AWS_APPLY_ROLE_ARN --body "$(terraform -chdir=infra/terraform output -raw terraform_apply_role_arn)"
   ```
 - **Placeholder policy.** Real resource identifiers (account ID, role ARN) live in GitHub
   repository secrets (`AWS_ACCOUNT_ID`, `AWS_DEPLOY_ROLE_ARN`) and the local gitignored `.env`;
