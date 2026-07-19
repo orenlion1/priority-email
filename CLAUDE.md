@@ -20,7 +20,17 @@
   store, and checksum-verifies — never commit plaintext filter values or the age private key.
 - **Operator-only surface.** Runtime secrets and infrastructure are NOT applied by CI — sync the
   runtime secret with `scripts/aws/bootstrap-aws.sh` and provision the Lambda/S3/schedule with
-  `terraform -chdir=infra/terraform apply`.
+  `terraform -chdir=infra/terraform apply`. Terraform state lives in the shared
+  `ensemble-grafana-tf-state-<account>` bucket (key `stacks/priority-email/terraform.tfstate`,
+  S3-native `use_lockfile` locking) that core-infra owns — the same bucket winnow uses. A fresh
+  checkout must init the backend first (bucket/region are not committed):
+
+  ```bash
+  terraform -chdir=infra/terraform init \
+    -backend-config="bucket=ensemble-grafana-tf-state-<account>" \
+    -backend-config="region=us-east-1" \
+    -backend-config="use_lockfile=true"
+  ```
 - **Placeholder policy.** Real resource identifiers (account ID, role ARN) live in GitHub
   repository secrets (`AWS_ACCOUNT_ID`, `AWS_DEPLOY_ROLE_ARN`) and the local gitignored `.env`;
   committed files must keep placeholders — the CI secret scan fails on real identifiers. The
