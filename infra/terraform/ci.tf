@@ -41,7 +41,14 @@ locals {
   schedule_arn         = "arn:aws:scheduler:${local.region}:${local.account_id}:schedule/default/${local.name}"
   log_group_arn        = "arn:aws:logs:${local.region}:${local.account_id}:log-group:/aws/lambda/${local.name}*"
   budget_arn           = "arn:aws:budgets::${local.account_id}:budget/priority-email-monthly"
-  managed_role_arns    = "arn:aws:iam::${local.account_id}:role/priority-email-*"
+
+  # IAM roles this stack's apply role may manage: its own (priority-email-*) plus
+  # the shared publishing roles in codeartifact.tf (slackkit-*). No wildcard on
+  # all roles — each prefix is a namespace this stack actually owns.
+  managed_role_arns = [
+    "arn:aws:iam::${local.account_id}:role/priority-email-*",
+    "arn:aws:iam::${local.account_id}:role/slackkit-*",
+  ]
 }
 
 # ---- plan: read-only, any run on this repo ----
@@ -97,6 +104,13 @@ resource "aws_iam_role_policy" "terraform_plan" {
           "logs:ListTagsForResource",
           "budgets:ViewBudget",
           "budgets:DescribeBudget",
+          "codeartifact:DescribeDomain",
+          "codeartifact:DescribeRepository",
+          "codeartifact:ListRepositoriesInDomain",
+          "codeartifact:ListTagsForResource",
+          "codeartifact:GetDomainPermissionsPolicy",
+          "codeartifact:GetRepositoryPermissionsPolicy",
+          "codeartifact:GetRepositoryEndpoint",
           "s3:GetBucket*",
           "s3:GetEncryptionConfiguration",
           "iam:GetRole",
@@ -186,10 +200,38 @@ resource "aws_iam_role_policy" "terraform_apply" {
           "logs:DescribeLogGroups",
           "budgets:ViewBudget",
           "budgets:DescribeBudget",
+          "codeartifact:DescribeDomain",
+          "codeartifact:DescribeRepository",
+          "codeartifact:ListRepositoriesInDomain",
+          "codeartifact:ListTagsForResource",
+          "codeartifact:GetDomainPermissionsPolicy",
+          "codeartifact:GetRepositoryPermissionsPolicy",
+          "codeartifact:GetRepositoryEndpoint",
           "iam:GetOpenIDConnectProvider",
           "sts:GetCallerIdentity"
         ]
         Resource = "*"
+      },
+      {
+        # Create/manage the shared CodeArtifact domain + repository (codeartifact.tf),
+        # scoped to exactly those two resources. Read/describe is granted broadly
+        # above; only the mutating calls are pinned here.
+        Sid    = "ManageCodeArtifact"
+        Effect = "Allow"
+        Action = [
+          "codeartifact:CreateDomain",
+          "codeartifact:DeleteDomain",
+          "codeartifact:PutDomainPermissionsPolicy",
+          "codeartifact:DeleteDomainPermissionsPolicy",
+          "codeartifact:CreateRepository",
+          "codeartifact:UpdateRepository",
+          "codeartifact:DeleteRepository",
+          "codeartifact:PutRepositoryPermissionsPolicy",
+          "codeartifact:DeleteRepositoryPermissionsPolicy",
+          "codeartifact:TagResource",
+          "codeartifact:UntagResource"
+        ]
+        Resource = [local.ca_domain_arn, local.ca_repository_arn]
       },
       {
         Sid      = "ManageFunction"
