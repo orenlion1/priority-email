@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write # assume the slackkit-reader OIDC role to install from CodeArtifact
 
 jobs:
   quality:
@@ -19,6 +20,23 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
+
+      # The Slack command layer (scripts/slack) depends on the shared `slackkit`
+      # package, published to the private CodeArtifact repo. Assume the read-only
+      # slackkit-reader role via OIDC and install it before the tests import it.
+      # The account id comes from the AWS_ACCOUNT_ID secret so no real identifier
+      # is committed (the secret scan rejects those).
+      - name: Configure AWS credentials (CodeArtifact read)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/slackkit-reader
+          aws-region: us-east-1
+
+      - name: Install slackkit from CodeArtifact
+        run: |
+          aws codeartifact login --tool pip --domain orenlion1 \
+            --domain-owner "${{ secrets.AWS_ACCOUNT_ID }}" --repository python
+          pip install slackkit
 
       - name: Python syntax
         run: python -m compileall scripts tests
