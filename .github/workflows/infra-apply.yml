@@ -74,7 +74,10 @@ jobs:
 
       - name: plan
         run: |
-          terraform -chdir=infra/terraform plan -no-color -input=false | tee plan.txt
+          # Write plan.txt where the "comment plan" step reads it. `-chdir` moves
+          # terraform's working dir but not the shell's, so tee must be told the
+          # infra/terraform path explicitly or the file lands at the repo root.
+          terraform -chdir=infra/terraform plan -no-color -input=false | tee infra/terraform/plan.txt
 
       - name: comment plan
         uses: actions/github-script@v7
