@@ -44,12 +44,10 @@ locals {
   log_group_arn        = "arn:aws:logs:${local.region}:${local.account_id}:log-group:/aws/lambda/${local.name}*"
   budget_arn           = "arn:aws:budgets::${local.account_id}:budget/priority-email-monthly"
 
-  # IAM roles this stack's apply role may manage: its own (priority-email-*) plus
-  # the shared publishing roles in codeartifact.tf (slackkit-*). No wildcard on
-  # all roles — each prefix is a namespace this stack actually owns.
+  # IAM roles this stack's apply role may manage: its own (priority-email-*). No
+  # wildcard on all roles — the prefix is a namespace this stack actually owns.
   managed_role_arns = [
     "arn:aws:iam::${local.account_id}:role/priority-email-*",
-    "arn:aws:iam::${local.account_id}:role/slackkit-*",
   ]
 }
 
@@ -107,13 +105,6 @@ resource "aws_iam_role_policy" "terraform_plan" {
           "budgets:ViewBudget",
           "budgets:DescribeBudget",
           "budgets:ListTagsForResource",
-          "codeartifact:DescribeDomain",
-          "codeartifact:DescribeRepository",
-          "codeartifact:ListRepositoriesInDomain",
-          "codeartifact:ListTagsForResource",
-          "codeartifact:GetDomainPermissionsPolicy",
-          "codeartifact:GetRepositoryPermissionsPolicy",
-          "codeartifact:GetRepositoryEndpoint",
           "s3:GetBucket*",
           "s3:GetEncryptionConfiguration",
           "iam:GetRole",
@@ -204,38 +195,10 @@ resource "aws_iam_role_policy" "terraform_apply" {
           "budgets:ViewBudget",
           "budgets:DescribeBudget",
           "budgets:ListTagsForResource",
-          "codeartifact:DescribeDomain",
-          "codeartifact:DescribeRepository",
-          "codeartifact:ListRepositoriesInDomain",
-          "codeartifact:ListTagsForResource",
-          "codeartifact:GetDomainPermissionsPolicy",
-          "codeartifact:GetRepositoryPermissionsPolicy",
-          "codeartifact:GetRepositoryEndpoint",
           "iam:GetOpenIDConnectProvider",
           "sts:GetCallerIdentity"
         ]
         Resource = "*"
-      },
-      {
-        # Create/manage the shared CodeArtifact domain + repository (codeartifact.tf),
-        # scoped to exactly those two resources. Read/describe is granted broadly
-        # above; only the mutating calls are pinned here.
-        Sid    = "ManageCodeArtifact"
-        Effect = "Allow"
-        Action = [
-          "codeartifact:CreateDomain",
-          "codeartifact:DeleteDomain",
-          "codeartifact:PutDomainPermissionsPolicy",
-          "codeartifact:DeleteDomainPermissionsPolicy",
-          "codeartifact:CreateRepository",
-          "codeartifact:UpdateRepository",
-          "codeartifact:DeleteRepository",
-          "codeartifact:PutRepositoryPermissionsPolicy",
-          "codeartifact:DeleteRepositoryPermissionsPolicy",
-          "codeartifact:TagResource",
-          "codeartifact:UntagResource"
-        ]
-        Resource = [local.ca_domain_arn, local.ca_repository_arn]
       },
       {
         Sid      = "ManageFunction"
