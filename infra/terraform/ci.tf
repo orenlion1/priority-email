@@ -19,14 +19,16 @@
 ################################################################################
 
 # AWS permits exactly ONE OIDC provider per issuer per account; ensemble-retail
-# created it. Read the existing one rather than creating a second (which fails).
-data "aws_iam_openid_connect_provider" "github_actions" {
-  url = "https://token.actions.githubusercontent.com"
-}
-
+# created it. Its ARN is deterministic from the account id, so construct it
+# rather than reading it via a data source: the aws_iam_openid_connect_provider
+# data source calls iam:ListOpenIDConnectProviders, which the scoped plan/apply
+# roles are (deliberately) not granted, and which no trust policy actually needs
+# — only the ARN string is used below.
 locals {
   account_id = data.aws_caller_identity.current.account_id
   region     = data.aws_region.current.name
+
+  github_oidc_provider_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/token.actions.githubusercontent.com"
 
   # Shared Terraform state bucket (owned by core-infra's stacks/ci-terraform-apply).
   # CI may touch ONLY priority-email's own state object and its S3-native lock file.
@@ -59,7 +61,7 @@ data "aws_iam_policy_document" "trust_any_run" {
     actions = ["sts:AssumeRoleWithWebIdentity"]
     principals {
       type        = "Federated"
-      identifiers = [data.aws_iam_openid_connect_provider.github_actions.arn]
+      identifiers = [local.github_oidc_provider_arn]
     }
     condition {
       test     = "StringEquals"
@@ -104,6 +106,7 @@ resource "aws_iam_role_policy" "terraform_plan" {
           "logs:ListTagsForResource",
           "budgets:ViewBudget",
           "budgets:DescribeBudget",
+          "budgets:ListTagsForResource",
           "codeartifact:DescribeDomain",
           "codeartifact:DescribeRepository",
           "codeartifact:ListRepositoriesInDomain",
@@ -154,7 +157,7 @@ data "aws_iam_policy_document" "trust_guarded_environment" {
     actions = ["sts:AssumeRoleWithWebIdentity"]
     principals {
       type        = "Federated"
-      identifiers = [data.aws_iam_openid_connect_provider.github_actions.arn]
+      identifiers = [local.github_oidc_provider_arn]
     }
     condition {
       test     = "StringEquals"
@@ -200,6 +203,7 @@ resource "aws_iam_role_policy" "terraform_apply" {
           "logs:DescribeLogGroups",
           "budgets:ViewBudget",
           "budgets:DescribeBudget",
+          "budgets:ListTagsForResource",
           "codeartifact:DescribeDomain",
           "codeartifact:DescribeRepository",
           "codeartifact:ListRepositoriesInDomain",
