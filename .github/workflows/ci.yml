@@ -27,7 +27,7 @@ jobs:
       # The account id comes from the AWS_ACCOUNT_ID secret so no real identifier
       # is committed (the secret scan rejects those).
       - name: Configure AWS credentials (CodeArtifact read)
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/slackkit-reader
           aws-region: us-east-1
