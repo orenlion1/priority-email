@@ -80,7 +80,7 @@ jobs:
           terraform -chdir=infra/terraform plan -no-color -input=false | tee infra/terraform/plan.txt
 
       - name: comment plan
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
