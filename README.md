@@ -66,6 +66,32 @@ python3 scripts/ci/secret-scan.py
 docker build --platform linux/amd64 -t priority-email-service:ci .
 ```
 
+## Slack Management Commands
+
+The Slack management channel understands a `command sub-command [args]` grammar,
+parsed in `scripts/slack/commands.py`: `filter list | add <kind> <value> |
+remove <kind> <value>` (kinds: `domain`, `email-address`, `sender-name`),
+`provider list`, `poll now`, and `help [<command>]`. Filter-value rules mirror
+`scripts/filters/assemble-filters.py`, so anything accepted here survives
+assembly.
+
+The shared grammar mechanics — verb dispatch, Slack markup stripping, the
+`ParseError` reply type, the `help` / `help <command>` renderer, signing-secret
+verification, and the Events request lifecycle — come from the internal
+[`slackkit`](https://github.com/orenlion1/slackkit) package (also used by
+`re-rank`); only priority-email's own verbs, validation, and help text are local.
+
+`slackkit` is published to a private AWS CodeArtifact repository. CI installs it
+by assuming the read-only `slackkit-reader` role via GitHub OIDC — no long-lived
+keys. To run the tests locally, install it the same way:
+
+```bash
+aws codeartifact login --tool pip --domain orenlion1 \
+  --domain-owner "$AWS_ACCOUNT_ID" --repository python
+pip install slackkit
+python3 -m unittest discover tests
+```
+
 ## Secrets And Filters
 
 Do not commit local secrets or plaintext filter values.

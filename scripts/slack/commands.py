@@ -21,9 +21,13 @@ runs, so a filter accepted here is one the assembler will also accept.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from enum import Enum
+
+# Shared Slack command-grammar primitives (verb dispatch, markup stripping, the
+# ParseError reply type, and the help renderer) live in slackkit; only the
+# priority-email verbs, validation, and help text are local.
+from slackkit import Help, ParseError, dispatch
 
 # The filter kinds the poller matches on, and the assembler recognises. Kept in
 # the same order assemble-filters.py lists them so the two cannot drift.
@@ -37,9 +41,6 @@ PROVIDERS = ("gmail", "yahoo", "icloud")
 # Mirrors assemble-filters.MAX_VALUE_LENGTH so a value this accepts is one the
 # assembler will also accept rather than reject after it is committed.
 MAX_VALUE_LENGTH = 320
-
-# Slack wraps links and mailto addresses in markup; strip it before parsing.
-_SLACK_LINK = re.compile(r"<[^|>]*\|([^>]*)>|<([^>]*)>")
 
 USAGE = (
     "Commands are `command sub-command`. Try `help` for the full list, or "
@@ -173,28 +174,22 @@ _HELP_ALIASES = {
 }
 
 
-def help_text(topic: str | None = None) -> str:
-    """The command reference, whole or for one command.
-
-    `help` (topic None) returns every section under a short intro. `help
-    <command>` returns just that command's section, so an operator can read the
-    part they need without the whole wall. An unknown topic lists the valid ones
-    rather than falling back to everything, which would hide the typo.
-    """
-    sections = _help_sections()
-
-    if topic is not None:
-        resolved = _HELP_ALIASES.get(topic, topic)
-        if resolved not in sections:
-            known = ", ".join(f"`{k}`" for k in sections)
-            return f"No help for `{topic}`. Commands: {known}."
-        return sections[resolved]
-
-    intro = (
+# slackkit.Help renders `help` / `help <command>` from the per-verb sections
+# above, keyed by the same verbs the parser dispatches on. Built at import so the
+# sections stay sourced lazily from FILTER_KINDS / PROVIDERS.
+_HELP = Help(
+    intro=(
         "*priority-email commands* — every command is `command sub-command`. "
         "`help <command>` shows help for just one command.\n"
-    )
-    return intro + "\n\n".join(sections.values())
+    ),
+    sections=_help_sections,
+    aliases=_HELP_ALIASES,
+)
+
+
+def help_text(topic: str | None = None) -> str:
+    """The command reference, whole or for one command (via slackkit.Help)."""
+    return _HELP.text(topic)
 
 
 @dataclass(frozen=True)
@@ -206,49 +201,22 @@ class Command:
     topic: str | None = None
 
 
-@dataclass(frozen=True)
-class ParseError:
-    """A rejected input plus the reply to send back."""
-
-    message: str
-
-
-def _strip_slack_markup(text: str) -> str:
-    # Slack wraps links in <...> or <url|label>, mailto addresses in
-    # <mailto:x@y|x@y>, and a value typed in `code` style carries literal
-    # backticks. All three would otherwise reach the command verbatim -- an
-    # email-address filter added as `x@y` would store the backticks. Drop the
-    # link markup, then the backticks.
-    text = _SLACK_LINK.sub(lambda m: m.group(1) or m.group(2) or "", text)
-    return text.replace("`", "")
-
-
 def parse(text: str) -> Command | ParseError:
     """Parse a channel message into a Command, or a ParseError to reply with.
 
-    Returns ParseError rather than raising: every bad input has a user-facing
-    answer, and exceptions would invite a bare 500 that tells the user nothing.
+    slackkit.dispatch handles the shared mechanics -- Slack markup stripping,
+    tokenising, case-insensitive verb lookup, and the empty-message /
+    unknown-verb replies -- then hands the tokens to the matching `_parse_<verb>`
+    below. Returns a ParseError rather than raising: every bad input has a
+    user-facing answer.
     """
-    cleaned = _strip_slack_markup(text or "").strip()
-    if not cleaned:
-        return ParseError(USAGE)
-
-    parts = cleaned.split()
-    verb = parts[0].lower()
-
-    dispatch = {
+    parsers = {
         "help": _parse_help,
         "filter": _parse_filter,
         "provider": _parse_provider,
         "poll": _parse_poll,
     }
-    handler = dispatch.get(verb)
-    if handler is None:
-        return ParseError(
-            f"Unknown command `{parts[0]}`. Try `help` for the full list, or: "
-            f"{USAGE}"
-        )
-    return handler(parts)
+    return dispatch(text, parsers, usage=USAGE)
 
 
 def _parse_help(parts: list[str]) -> Command | ParseError:
