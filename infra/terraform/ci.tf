@@ -116,6 +116,16 @@ resource "aws_iam_role_policy" "terraform_plan" {
           "codeartifact:GetRepositoryEndpoint",
           "s3:GetBucket*",
           "s3:GetEncryptionConfiguration",
+          # The aws_s3_bucket read reads these sub-configs too; they are not
+          # covered by s3:GetBucket* (differently named IAM actions). Needed once
+          # the state bucket is back in state and refreshed each plan.
+          "s3:GetAccelerateConfiguration",
+          "s3:GetLifecycleConfiguration",
+          "s3:GetReplicationConfiguration",
+          "s3:GetAnalyticsConfiguration",
+          "s3:GetMetricsConfiguration",
+          "s3:GetInventoryConfiguration",
+          "s3:GetIntelligentTieringConfiguration",
           "iam:GetRole",
           "iam:GetRolePolicy",
           "iam:ListRolePolicies",
@@ -309,11 +319,15 @@ resource "aws_iam_role_policy" "terraform_apply" {
         # access — see the deny below.
         Sid    = "ManageAppStateBucket"
         Effect = "Allow"
+        # s3:Get* is bucket-scoped here (the resource is the bucket, not its
+        # objects), so it grants every bucket-config read the aws_s3_bucket
+        # refresh performs — accelerate, lifecycle, replication, etc., which
+        # s3:GetBucket* does not cover — while the NoAppStateContentsFromCI deny
+        # below still blocks all object access.
         Action = [
           "s3:CreateBucket",
-          "s3:GetBucket*",
+          "s3:Get*",
           "s3:PutBucket*",
-          "s3:GetEncryptionConfiguration",
           "s3:PutEncryptionConfiguration",
           "s3:ListBucket"
         ]
