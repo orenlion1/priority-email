@@ -23,14 +23,17 @@
 # applying.
 ################################################################################
 
+# CodeArtifact resources import by ARN (the provider parses the id as one), so
+# use the ARN locals from codeartifact.tf — they interpolate local.account_id,
+# keeping the real id out of the committed file (the secret scan rejects it).
 import {
   to = aws_codeartifact_domain.shared
-  id = "orenlion1"
+  id = local.ca_domain_arn
 }
 
 import {
   to = aws_codeartifact_repository.python
-  id = "orenlion1/python"
+  id = local.ca_repository_arn
 }
 
 import {
