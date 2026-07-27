@@ -32,12 +32,15 @@ jobs:
           role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/slackkit-reader
           aws-region: us-east-1
 
-      - name: Install slackkit from CodeArtifact
+      - name: Install test dependencies
         run: |
+          # boto3 (the Slack handler imports it) comes from PyPI and must be
+          # installed BEFORE `codeartifact login`, which repoints pip at the
+          # private repo (slackkit only, no PyPI fallback).
+          pip install boto3
           aws codeartifact login --tool pip --domain orenlion1 \
             --domain-owner "${{ secrets.AWS_ACCOUNT_ID }}" --repository python
-          # boto3 too: the Slack handler imports it, so its tests need it to load.
-          pip install slackkit boto3
+          pip install slackkit
 
       - name: Python syntax
         run: python -m compileall scripts tests
