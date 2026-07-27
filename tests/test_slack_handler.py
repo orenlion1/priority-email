@@ -18,8 +18,9 @@ if str(SCRIPTS) not in sys.path:
 
 try:
     import slackkit  # noqa: F401
+    import boto3  # noqa: F401  (the handler imports it at module load)
 except ImportError:  # pragma: no cover
-    raise unittest.SkipTest("slackkit not installed (ships from CodeArtifact in CI)")
+    raise unittest.SkipTest("slackkit/boto3 not installed (ship into the CI/Lambda env)")
 
 # The handler reads configuration and creates boto3 clients at import; give it an
 # environment and a region before importing it.

@@ -142,6 +142,16 @@ resource "aws_iam_role_policy" "terraform_plan" {
         Effect   = "Allow"
         Action   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
         Resource = local.tf_lock_obj_arn
+      },
+      {
+        # Refresh the app state bucket. The provider does a HeadBucket
+        # (s3:ListBucket) on it; without this the plan role gets AccessDenied and
+        # the bucket reads as "deleted", producing phantom recreate/destroy diffs.
+        # The apply role already has this via ManageAppStateBucket.
+        Sid      = "AppStateBucketRefresh"
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = local.app_state_bucket_arn
       }
     ]
   })
