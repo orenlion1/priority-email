@@ -1,0 +1,127 @@
+name: Terraform
+
+# Plan and (guarded) apply for priority-email's self-contained infra stack
+# (infra/*.tf). priority-email owns its own OIDC roles rather than core-infra's
+# shared ci-terraform-apply, and locks state with S3-native locking (a .tflock
+# object beside the state file) -- there is no DynamoDB lock table.
+#
+# Plan runs on every PR touching infra/, and on demand. Apply is manual-only and
+# gated on the "terraform-apply" GitHub environment: the apply role's trust
+# policy only allows AssumeRoleWithWebIdentity from a job running under that
+# environment, so it cannot be assumed until a required reviewer approves.
+#
+#   gh workflow run terraform.yml --ref <branch>                 # plan only
+#   gh workflow run terraform.yml --ref <branch> -f apply=true   # plan then apply (needs approval)
+
+on:
+  pull_request:
+    branches: [main]
+    paths: ["infra/**"]
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Apply after plan. Leave false to only plan and review."
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: terraform-priority-email
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  # bucket + region + S3-native locking; key and encrypt are committed in
+  # infra/versions.tf. TF_STATE_BUCKET is the existing repo variable.
+  TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.11.0"
+
+      - name: Configure AWS credentials (read-only plan role)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform init
+        working-directory: infra
+        run: |
+          terraform init \
+            -backend-config="bucket=$TF_STATE_BUCKET" \
+            -backend-config="region=$AWS_REGION" \
+            -backend-config="use_lockfile=true"
+
+      - name: Terraform plan
+        working-directory: infra
+        run: |
+          terraform plan -out=tfplan -input=false -no-color | tee plan.txt
+          terraform show -no-color tfplan > plan-full.txt
+
+      - name: Post plan summary
+        if: always()
+        working-directory: infra
+        run: |
+          {
+            echo "### Terraform plan"
+            echo '```'
+            cat plan.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload plan artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan
+          path: |
+            infra/tfplan
+            infra/plan-full.txt
+          retention-days: 5
+
+  apply:
+    name: Apply
+    needs: plan
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.apply }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: terraform-apply
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.11.0"
+
+      - name: Configure AWS credentials (scoped apply role)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_APPLY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform init
+        working-directory: infra
+        run: |
+          terraform init \
+            -backend-config="bucket=$TF_STATE_BUCKET" \
+            -backend-config="region=$AWS_REGION" \
+            -backend-config="use_lockfile=true"
+
+      # Re-plan under the apply role (rather than trusting the plan job's
+      # artifact) so apply runs against current state with the role that will
+      # execute it.
+      - name: Terraform apply
+        working-directory: infra
+        run: terraform apply -input=false -auto-approve
