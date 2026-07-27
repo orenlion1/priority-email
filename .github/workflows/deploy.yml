@@ -26,6 +26,7 @@ jobs:
     outputs:
       deploy: ${{ steps.filter.outputs.deploy }}
       filters: ${{ steps.filter.outputs.filters }}
+      slack: ${{ steps.filter.outputs.slack }}
     steps:
       - name: Check out the CI-tested commit
         uses: actions/checkout@v7
@@ -46,10 +47,12 @@ jobs:
           base="$(gh run list --workflow Deploy --status success --branch main --limit 1 --json headSha --jq '.[0].headSha // empty')"
           deploy=false
           filters=false
+          slack=false
           if [ -z "$base" ] || ! git cat-file -e "$base" 2>/dev/null; then
             echo "No usable previous deploy base; deploying."
             deploy=true
             filters=true
+            slack=true
           else
             changed="$(git diff --name-only "$base" "$HEAD_SHA")"
             echo "Changed files since $base:"; echo "$changed"
@@ -59,10 +62,16 @@ jobs:
             if echo "$changed" | grep -qE '^(filters/ops/|scripts/filters/|\.github/workflows/deploy\.yml)'; then
               filters=true
             fi
+            # The Slack handler bundle: its own code, the shared command parser,
+            # the age public key it ships, or its build/deploy scripts.
+            if echo "$changed" | grep -qE '^(scripts/slack/|filters/age-recipients\.pub|scripts/aws/(build-slack-lambda-zip|deploy-slack-lambda)\.sh|\.github/workflows/deploy\.yml)'; then
+              slack=true
+            fi
           fi
           echo "deploy=$deploy" >> "$GITHUB_OUTPUT"
           echo "filters=$filters" >> "$GITHUB_OUTPUT"
-          echo "Will deploy Lambda code: $deploy; will sync filters to S3: $filters"
+          echo "slack=$slack" >> "$GITHUB_OUTPUT"
+          echo "Deploy poller: $deploy; sync filters: $filters; deploy Slack handler: $slack"
 
   deploy:
     needs: changes
@@ -120,3 +129,60 @@ jobs:
           AGE_SECRET_KEY: ${{ secrets.AGE_SECRET_KEY }}
           STATE_BUCKET: priority-email-state-${{ secrets.AWS_ACCOUNT_ID }}
         run: scripts/filters/sync-filters-to-s3.sh
+
+  # The Slack handler bundle is not stdlib-only: it needs slackkit (from the
+  # shared CodeArtifact repo) and the `age` binary. Built under the read-only
+  # slackkit-reader role, then rolled out under the deploy role. Independent of
+  # the poller deploy so a Slack build failure never blocks it.
+  #
+  # Prerequisites (see PR): AWS_DEPLOY_ROLE_ARN must allow update-function-code on
+  # priority-email-slack-events; the slackkit-reader role must be assumable from
+  # this workflow; AGE_LINUX_AMD64_SHA256 must hold the published checksum of
+  # age-vX-linux-amd64.tar.gz.
+  deploy-slack:
+    needs: changes
+    if: needs.changes.outputs.slack == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    env:
+      AWS_REGION: us-east-1
+      AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+    steps:
+      - name: Check out the CI-tested commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install age (bundled into the zip and used to verify the download)
+        run: sudo apt-get update -q && sudo apt-get install -y -q age
+
+      - name: Configure AWS credentials (CodeArtifact read)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/slackkit-reader
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Build the Slack handler zip (slackkit + age)
+        env:
+          AGE_SHA256: ${{ secrets.AGE_LINUX_AMD64_SHA256 }}
+        run: scripts/aws/build-slack-lambda-zip.sh
+
+      - name: Configure AWS credentials (deploy role)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update Slack handler code
+        run: |
+          aws lambda update-function-code \
+            --function-name priority-email-slack-events \
+            --zip-file "fileb://dist/priority-email-slack-lambda.zip" \
+            --region "$AWS_REGION" --publish >/dev/null
+          aws lambda wait function-updated \
+            --function-name priority-email-slack-events --region "$AWS_REGION"
