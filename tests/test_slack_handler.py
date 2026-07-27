@@ -71,7 +71,9 @@ class FakeLambda:
         return {}
 
 
-RUNTIME_ENV = "SLACK_BOT_TOKEN=xoxb-test\nEMAIL_POLL_ENABLED_PROVIDERS=gmail\n"
+# A placeholder bot token the handler only forwards to a stubbed post_reply; kept
+# clear of the real `xoxb-` shape so the secret scanner does not flag the fixture.
+RUNTIME_ENV = "SLACK_BOT_TOKEN=test-bot-token\nEMAIL_POLL_ENABLED_PROVIDERS=gmail\n"
 
 
 class HandlerTests(unittest.TestCase):
