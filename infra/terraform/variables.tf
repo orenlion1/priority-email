@@ -41,6 +41,35 @@ variable "monthly_budget_usd" {
   default = 5
 }
 
+# ---- Slack events handler (see slack.tf) ----
+
+variable "slack_lambda_zip" {
+  type        = string
+  description = "Path to the built Slack handler zip (scripts/aws/build-slack-lambda-zip.sh); bundles slackkit + age."
+  default     = "../../dist/priority-email-slack-lambda.zip"
+}
+
+variable "slack_lambda_timeout_seconds" {
+  type    = number
+  default = 10
+}
+
+variable "slack_lambda_memory_mb" {
+  type    = number
+  default = 256
+}
+
+variable "manage_channel_id" {
+  type        = string
+  description = <<-EOT
+    Slack channel ID of the management channel. The handler ignores messages from
+    any other channel -- this is the trust boundary, not a convenience. Set it to
+    the channel where help / filter / provider / poll run; empty accepts any
+    channel (do not leave empty in production).
+  EOT
+  default     = ""
+}
+
 # ---- CI (GitHub Actions -> AWS via OIDC; see ci.tf) ----
 
 variable "github_repository" {

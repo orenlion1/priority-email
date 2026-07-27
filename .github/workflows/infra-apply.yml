@@ -55,6 +55,13 @@ jobs:
       - name: Build the Lambda zip (so filebase64sha256 resolves)
         run: scripts/aws/build-lambda-zip.sh
 
+      - name: Placeholder Slack zip (so filebase64sha256 resolves; real code deploys via deploy.yml)
+        # source_code_hash is ignored (ignore_changes), so only the file's
+        # existence matters here -- not its contents.
+        run: |
+          mkdir -p dist
+          python3 -c "import zipfile; z=zipfile.ZipFile('dist/priority-email-slack-lambda.zip','w'); z.writestr('placeholder','x'); z.close()"
+
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }} # read-only
@@ -103,6 +110,13 @@ jobs:
 
       - name: Build the Lambda zip (so filebase64sha256 resolves)
         run: scripts/aws/build-lambda-zip.sh
+
+      - name: Placeholder Slack zip (so filebase64sha256 resolves; real code deploys via deploy.yml)
+        # source_code_hash is ignored (ignore_changes), so only the file's
+        # existence matters here -- not its contents.
+        run: |
+          mkdir -p dist
+          python3 -c "import zipfile; z=zipfile.ZipFile('dist/priority-email-slack-lambda.zip','w'); z.writestr('placeholder','x'); z.close()"
 
       - uses: aws-actions/configure-aws-credentials@v4
         with:

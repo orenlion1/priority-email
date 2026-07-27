@@ -44,6 +44,12 @@ locals {
   log_group_arn        = "arn:aws:logs:${local.region}:${local.account_id}:log-group:/aws/lambda/${local.name}*"
   budget_arn           = "arn:aws:budgets::${local.account_id}:budget/priority-email-monthly"
 
+  # Slack events handler (slack.tf): its own function, log group, and the two
+  # secret CONTAINERS the apply role may manage (never their values).
+  slack_lambda_arn    = "arn:aws:lambda:${local.region}:${local.account_id}:function:priority-email-slack-events"
+  slack_log_group_arn = "arn:aws:logs:${local.region}:${local.account_id}:log-group:/aws/lambda/priority-email-slack-events*"
+  slack_secret_arns   = "arn:aws:secretsmanager:${local.region}:${local.account_id}:secret:priority-email/slack-*"
+
   # IAM roles this stack's apply role may manage: its own (priority-email-*). No
   # wildcard on all roles — the prefix is a namespace this stack actually owns.
   managed_role_arns = [
@@ -113,6 +119,7 @@ resource "aws_iam_role_policy" "terraform_plan" {
           "iam:ListAttachedRolePolicies",
           "iam:ListRoleTags",
           "iam:GetOpenIDConnectProvider",
+          "secretsmanager:DescribeSecret",
           "sts:GetCallerIdentity"
         ]
         Resource = "*"
@@ -135,6 +142,16 @@ resource "aws_iam_role_policy" "terraform_plan" {
         Effect   = "Allow"
         Action   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
         Resource = local.tf_lock_obj_arn
+      },
+      {
+        # Refresh the app state bucket. The provider does a HeadBucket
+        # (s3:ListBucket) on it; without this the plan role gets AccessDenied and
+        # the bucket reads as "deleted", producing phantom recreate/destroy diffs.
+        # The apply role already has this via ManageAppStateBucket.
+        Sid      = "AppStateBucketRefresh"
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = local.app_state_bucket_arn
       }
     ]
   })
@@ -196,6 +213,7 @@ resource "aws_iam_role_policy" "terraform_apply" {
           "budgets:DescribeBudget",
           "budgets:ListTagsForResource",
           "iam:GetOpenIDConnectProvider",
+          "secretsmanager:DescribeSecret",
           "sts:GetCallerIdentity"
         ]
         Resource = "*"
@@ -204,7 +222,7 @@ resource "aws_iam_role_policy" "terraform_apply" {
         Sid      = "ManageFunction"
         Effect   = "Allow"
         Action   = ["lambda:*"]
-        Resource = ["${local.lambda_arn}", "${local.lambda_arn}:*"]
+        Resource = ["${local.lambda_arn}", "${local.lambda_arn}:*", local.slack_lambda_arn, "${local.slack_lambda_arn}:*"]
       },
       {
         Sid    = "ManageSchedule"
@@ -230,7 +248,23 @@ resource "aws_iam_role_policy" "terraform_apply" {
           "logs:UntagResource",
           "logs:ListTagsForResource"
         ]
-        Resource = local.log_group_arn
+        Resource = [local.log_group_arn, local.slack_log_group_arn]
+      },
+      {
+        # Manage the Slack secret CONTAINERS only -- never their values. No
+        # GetSecretValue anywhere on the apply role, so a leaked CI token can
+        # create/rename/tag the containers but cannot read the signing secret or
+        # bot token.
+        Sid    = "ManageSlackSecretContainers"
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:CreateSecret",
+          "secretsmanager:DeleteSecret",
+          "secretsmanager:UpdateSecret",
+          "secretsmanager:TagResource",
+          "secretsmanager:UntagResource"
+        ]
+        Resource = local.slack_secret_arns
       },
       {
         Sid    = "ManageBudget"
