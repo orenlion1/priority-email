@@ -83,8 +83,14 @@ def handler(event, context):
         # stdout -> CloudWatch, so the local file is per-invocation scratch.
         "EMAIL_POLL_LOG_FILE": "/tmp/email-poller.log",
     }
+    poll_command = [sys.executable, POLL_SCRIPT, "--env-file", ENV_PATH, "--state-file", STATE_PATH]
+    # Opt-in per-message sender/subject logging for diagnostics. Off by default;
+    # set EMAIL_POLL_VERBOSE=true (with EMAIL_LOG_LEVEL=debug) on the function to
+    # capture why messages are or aren't matching a filter, then unset it again.
+    if os.environ.get("EMAIL_POLL_VERBOSE", "").strip().lower() in {"1", "true", "yes", "on"}:
+        poll_command.append("--verbose")
     proc = subprocess.run(
-        [sys.executable, POLL_SCRIPT, "--env-file", ENV_PATH, "--state-file", STATE_PATH],
+        poll_command,
         env=env,
         capture_output=True,
         text=True,
