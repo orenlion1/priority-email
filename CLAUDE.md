@@ -43,5 +43,9 @@
 - **Placeholder policy.** Real resource identifiers (account ID, role ARN) live in GitHub
   repository secrets (`AWS_ACCOUNT_ID`, `AWS_DEPLOY_ROLE_ARN`) and the local gitignored `.env`;
   committed files must keep placeholders — the CI secret scan fails on real identifiers. The
-  deploy role needs `lambda:UpdateFunctionCode`/`PublishVersion`/`GetFunction` on
-  `priority-email-poller` and `s3:PutObject`/`GetObject` on the state bucket.
+  `priority-email-deploy` role is hand-managed (not in this repo's Terraform, which owns only the
+  `terraform_plan`/`terraform_apply` roles). It needs `lambda:UpdateFunctionCode` and
+  `lambda:GetFunctionConfiguration` (the `wait function-updated` waiter) on **both**
+  `priority-email-poller` and `priority-email-slack-events`, plus `s3:PutObject`/`GetObject` on the
+  state bucket for filter sync. The Slack zip build separately assumes the `slackkit-reader` role
+  for CodeArtifact — that is not the deploy role.
