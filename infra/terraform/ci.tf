@@ -112,7 +112,13 @@ resource "aws_iam_role_policy" "terraform_plan" {
           "budgets:DescribeBudget",
           "budgets:ListTagsForResource",
           "s3:GetBucket*",
+          # The provider reads these sub-configs on every bucket refresh, and
+          # their IAM action names have no "Bucket" segment, so s3:GetBucket*
+          # does NOT cover them. Missing any one 403s the refresh before apply.
           "s3:GetEncryptionConfiguration",
+          "s3:GetAccelerateConfiguration",
+          "s3:GetLifecycleConfiguration",
+          "s3:GetReplicationConfiguration",
           "iam:GetRole",
           "iam:GetRolePolicy",
           "iam:ListRolePolicies",
@@ -310,7 +316,12 @@ resource "aws_iam_role_policy" "terraform_apply" {
           "s3:CreateBucket",
           "s3:GetBucket*",
           "s3:PutBucket*",
+          # See DescribeStack: the provider refreshes these sub-configs and their
+          # IAM action names lack the "Bucket" segment s3:GetBucket* matches on.
           "s3:GetEncryptionConfiguration",
+          "s3:GetAccelerateConfiguration",
+          "s3:GetLifecycleConfiguration",
+          "s3:GetReplicationConfiguration",
           "s3:PutEncryptionConfiguration",
           "s3:ListBucket"
         ]

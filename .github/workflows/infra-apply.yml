@@ -28,6 +28,16 @@ on:
       - "infra/terraform/**"
       - ".github/workflows/infra-apply.yml"
   workflow_dispatch:
+    inputs:
+      target:
+        description: >-
+          One-time break-glass: -target resource address for a scoped apply that
+          refreshes only that resource (and its deps), skipping the full-state
+          refresh. Use to grant the apply role a missing permission when a normal
+          apply would 403 at refresh before it could apply the fix. Leave blank
+          for the normal full apply.
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -136,4 +146,11 @@ jobs:
             -backend-config="use_lockfile=true"
 
       - name: apply
-        run: terraform -chdir=infra/terraform apply -auto-approve -input=false
+        # A `target` input runs a scoped apply that refreshes only that resource,
+        # sidestepping a full-state refresh that would 403 on a missing app-bucket
+        # read permission — the break-glass for the bootstrap deadlock where the
+        # apply that would grant the permission can't get past refresh. Normal
+        # runs (empty input, or push) do the full apply.
+        run: |
+          terraform -chdir=infra/terraform apply -auto-approve -input=false \
+            ${{ inputs.target != '' && format('-target={0}', inputs.target) || '' }}
