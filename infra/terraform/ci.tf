@@ -126,6 +126,7 @@ resource "aws_iam_role_policy" "terraform_plan" {
           "iam:ListRoleTags",
           "iam:GetOpenIDConnectProvider",
           "secretsmanager:DescribeSecret",
+          "secretsmanager:GetResourcePolicy",
           "sts:GetCallerIdentity"
         ]
         Resource = "*"
@@ -268,7 +269,11 @@ resource "aws_iam_role_policy" "terraform_apply" {
           "secretsmanager:DeleteSecret",
           "secretsmanager:UpdateSecret",
           "secretsmanager:TagResource",
-          "secretsmanager:UntagResource"
+          "secretsmanager:UntagResource",
+          # Read-back on refresh: the provider reads the container's resource
+          # policy (there is none, but it must ask). Container metadata only,
+          # never GetSecretValue — the value stays out of CI's reach.
+          "secretsmanager:GetResourcePolicy"
         ]
         Resource = local.slack_secret_arns
       },
