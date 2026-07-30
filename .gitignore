@@ -2,6 +2,10 @@
 .env
 .env.*
 !.env.example
+
+# Filled-in Slack app credentials for upload-slack-secrets.sh (never commit).
+scripts/aws/slack-secrets.env
+!scripts/aws/slack-secrets.env.example
 client_secret_*.apps.googleusercontent.com*
 client_secret_*.json
 
