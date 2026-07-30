@@ -367,16 +367,16 @@ Current implementation:
 
 Use the reference deployment gate. The exact source commit that passes CI on `main` is the commit that gets deployed. Documentation-only changes may stop after GitHub and CI.
 
-### Automated per-commit image rollout (default path)
+### Automated per-commit Lambda rollout (default path)
 
 Pushing or merging a commit to `main` runs the `CI` GitHub Actions workflow. When CI completes successfully, the `Deploy` GitHub Actions workflow (`.github/workflows/deploy.yml`) is triggered automatically via `workflow_run` and:
 
-1. Detects which paths changed since the last successfully deployed commit: image-affecting paths (`Dockerfile`, `scripts/**`, top-level `filters/` templates, or `deploy.yml` itself) trigger the image rollout, and the encrypted filter ops log (`filters/ops/**` or `scripts/filters/**`) triggers the filter sync job. Documentation-only pushes skip both.
+1. Detects which paths changed since the last successfully deployed commit: code paths (`scripts/**`, top-level `filters/` templates, or `deploy.yml` itself) trigger the poller code rollout; `scripts/slack/**` (plus the age recipients key and the slack build/deploy scripts) trigger the Slack handler rollout; the encrypted filter ops log (`filters/ops/**` or `scripts/filters/**`) triggers the filter sync job. Documentation-only pushes skip all three.
 2. Checks out the exact CI-passing commit (`github.event.workflow_run.head_sha`).
-3. Authenticates to AWS with GitHub OIDC by assuming an IAM deploy role (no static credentials in the repo).
-4. Updates kubeconfig for the target EKS cluster (name supplied by the `EKS_CLUSTER_NAME` secret) in `us-east-1`.
-5. Runs `scripts/aws/deploy-image.sh`, which builds and pushes the commit's image to ECR tagged with the short commit SHA, updates `deployment/priority-email-service` in the `priority-email` namespace, and waits for `kubectl rollout status` to finish.
-6. When the filter ops log changed, the `sync-filters` job decrypts the ops with the `AGE_SECRET_KEY` secret, assembles the filter files in the runner, applies the `priority-email-filters` ConfigMap, restarts the deployment, and verifies the live ConfigMap by checksum without printing filter values.
+3. Authenticates to AWS with GitHub OIDC by assuming the `priority-email-deploy` role (no static credentials in the repo).
+4. `deploy` job: runs `scripts/aws/deploy-lambda.sh`, which builds the stdlib-only poller zip and runs `aws lambda update-function-code --function-name priority-email-poller` followed by `aws lambda wait function-updated`.
+5. `deploy-slack` job: builds the handler zip (slackkit from the shared CodeArtifact repo — read under the separate `slackkit-reader` OIDC role — plus the `age` binary), then `update-function-code`/`wait function-updated` on `priority-email-slack-events`.
+6. When the filter ops log changed, the `sync-filters` job decrypts the ops with the `AGE_SECRET_KEY` secret, assembles the filter files in the runner, uploads them to the `priority-email-state-<account>` S3 bucket (`scripts/filters/sync-filters-to-s3.sh`), and checksum-verifies the upload without printing filter values.
 
 The workflow only deploys when the CI run concluded with `success` and originated from a `push` event on `main`, preserving the deployment gate: the exact CI-passing commit is what reaches AWS.
 
@@ -395,12 +395,11 @@ Filter values are private but must be deliverable from anywhere — including a 
 
 Required GitHub Actions secrets (configured on the repository or on the `production` environment):
 
-- `AWS_ACCOUNT_ID`: the target AWS account ID, used to build the ECR registry host at runtime.
-- `AWS_DEPLOY_ROLE_ARN`: an IAM role ARN such as `arn:aws:iam::<aws-account-id>:role/priority-email-deploy` whose trust policy permits the GitHub OIDC provider for this repository, and whose permissions allow ECR push plus `eks:DescribeCluster` and kubectl access sufficient to roll out the deployment.
-- `EKS_CLUSTER_NAME`: the name of the target EKS cluster. Kept as a secret so the real cluster name stays out of the repository, matching the placeholder policy used in documentation.
+- `AWS_ACCOUNT_ID`: the target AWS account ID. Used as the CodeArtifact domain owner when building the Slack handler zip and to construct the `priority-email-state-<account>` state bucket name.
+- `AWS_DEPLOY_ROLE_ARN`: an IAM role ARN such as `arn:aws:iam::<aws-account-id>:role/priority-email-deploy` whose trust policy permits the GitHub OIDC provider for this repository. Its permissions must allow `lambda:UpdateFunctionCode` and `lambda:GetFunctionConfiguration` (the `wait function-updated` waiter) on **both** `priority-email-poller` and `priority-email-slack-events`, plus `s3:PutObject`/`s3:GetObject` on the state bucket for the filter sync. It is a hand-managed role — deliberately not in this repo's Terraform, which owns only the `terraform_plan`/`terraform_apply` roles (`infra/terraform/ci.tf`). The Slack build additionally assumes a separate `slackkit-reader` role for CodeArtifact read; that is not the deploy role.
 - `AGE_SECRET_KEY`: the age identity that decrypts `filters/ops/*.age` in the `sync-filters` job. Set from the operator key with `grep AGE-SECRET-KEY ~/.config/priority-email/age.key | gh secret set AGE_SECRET_KEY`.
 
-Kubernetes-side access for the deploy role is granted by `infra/k8s/deploy-rbac.yaml` (namespace-scoped `Role`/`RoleBinding` for the `priority-email-deployers` group, limited to deployment patch/watch, replicaset and pod reads, and management of the `priority-email-filters` ConfigMap) together with a `mapRoles` entry for the deploy role in the `kube-system` `aws-auth` ConfigMap. The aws-auth mapping is operator-managed cluster state, not applied by CI.
+The deploy role needs no Kubernetes access: the poller and Slack handler are Lambdas, not a workload on EKS. (The `infra/k8s/*` manifests and any `aws-auth`/RBAC wiring are historical, from the pre-2026-07-10 EKS deployment.)
 
 After an automated rollout, verify the live image and rollout:
 
