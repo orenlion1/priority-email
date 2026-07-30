@@ -18,16 +18,26 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 
 import boto3
 
+# This module ships at scripts/slack/ and is loaded as scripts.slack.slack_handler,
+# so Lambda puts /var/task on sys.path but not /var/task/scripts. Yet the code
+# (and the tests) import the sibling modules as the top-level `slack` package.
+# Put this file's parent dir (…/scripts) on the path so `import slack` resolves at
+# runtime — the same thing tests/test_slack_handler.py does.
+_SCRIPTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+
 # slackkit: shared verification, Events lifecycle, and command-grammar core.
-from slackkit import ParseError, SlackEventsHandler, post_reply
+from slackkit import ParseError, SlackEventsHandler, post_reply  # noqa: E402
 
 # The priority-email command surface: parser, help, and the filter-list algebra.
-from slack import commands
-from slack.commands import Action
-from slack.filter_store import S3FilterStore
+from slack import commands  # noqa: E402
+from slack.commands import Action  # noqa: E402
+from slack.filter_store import S3FilterStore  # noqa: E402
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
