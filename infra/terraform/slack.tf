@@ -19,16 +19,23 @@ locals {
 }
 
 # --- Secret containers (values set out-of-band; never in Terraform state) ---
+# recovery_window_in_days = 0: purge on delete instead of soft-deleting for 7-30
+# days. The values are set out-of-band and re-settable, so a recovery window buys
+# nothing — and a soft-deleted name blocks recreating a container of the same
+# name (CreateSecret: "already scheduled for deletion"), which traps any
+# replace/recreate until the window elapses.
 resource "aws_secretsmanager_secret" "slack_signing_secret" {
-  name        = "priority-email/slack-signing-secret"
-  description = "Slack signing secret, verified on every request to the events Function URL."
-  tags        = local.tags
+  name                    = "priority-email/slack-signing-secret"
+  description             = "Slack signing secret, verified on every request to the events Function URL."
+  recovery_window_in_days = 0
+  tags                    = local.tags
 }
 
 resource "aws_secretsmanager_secret" "slack_bot_token" {
-  name        = "priority-email/slack-bot-token"
-  description = "Slack bot token the events handler uses to reply in the management channel."
-  tags        = local.tags
+  name                    = "priority-email/slack-bot-token"
+  description             = "Slack bot token the events handler uses to reply in the management channel."
+  recovery_window_in_days = 0
+  tags                    = local.tags
 }
 
 # --- Execution role ---
