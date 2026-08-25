@@ -28,7 +28,7 @@ Use `--verbose` with the Gmail poller only when message metadata is needed for d
 python3 scripts/poll-email.py --provider gmail --verbose
 ```
 
-Provider request failures are posted to Slack by default when `SLACK_BOT_TOKEN` and `SLACK_CHANNEL_ID` are configured. Set `EMAIL_POLL_SLACK_ERROR_NOTIFICATIONS_ENABLED=false` for local troubleshooting without Slack error posts.
+Provider request failures are posted to Slack by default when `SLACK_BOT_TOKEN` and `SLACK_CHANNEL_ID` are configured. Set `EMAIL_POLL_SLACK_ERROR_NOTIFICATIONS_ENABLED=false` for local troubleshooting without Slack error posts. Transient provider errors (Yahoo IMAP `[SERVERBUG] ... try again later`) are not alerted until they persist for `EMAIL_POLL_TRANSIENT_ERROR_ALERT_THRESHOLD` consecutive poll cycles (default 3, ~15 minutes at the 5-minute schedule); the streak resets on the next successful poll or a non-transient error.
 
 Provider HTTP requests retry transport failures and HTTP `408`, `429`, `500`, `502`, `503`, and `504` responses up to three total attempts with one- and two-second backoff delays. Each attempt emits RED metrics; the poll failure and Slack error notification are surfaced only after retries are exhausted. Non-transient failures such as invalid credentials and malformed responses fail immediately.
 

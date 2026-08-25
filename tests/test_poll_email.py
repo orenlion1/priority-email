@@ -1135,5 +1135,137 @@ class YahooPollerTests(unittest.TestCase):
         self.assertEqual(["103", "104"], [item["id"] for item in result.messages])
 
 
+class ServerbugPoller(poll_email.BaseProviderPoller):
+    name = "serverbug"
+
+    def poll(self, values, provider_state, telemetry=None):
+        raise poll_email.EmailProviderRequestError(
+            method="IMAP",
+            url="imaps://imap.mail.yahoo.com:993/INBOX",
+            reason="serverbug",
+            details="[SERVERBUG] LOGIN Server error - Please try again later",
+        )
+
+
+class TransientErrorSuppressionTest(unittest.TestCase):
+    def serverbug_error(self):
+        return poll_email.EmailProviderRequestError(
+            method="IMAP",
+            url="imaps://imap.mail.yahoo.com:993/INBOX",
+            reason="serverbug",
+            details="[SERVERBUG] LOGIN Server error - Please try again later",
+        )
+
+    def auth_error(self):
+        return poll_email.EmailProviderRequestError(
+            method="POST",
+            url="https://api.login.yahoo.com/oauth2/get_token",
+            status=401,
+            reason="invalid_grant",
+        )
+
+    def test_record_provider_error_tracks_consecutive_transient_streak(self):
+        provider_state = {}
+        poll_email.record_provider_error(provider_state, self.serverbug_error())
+        self.assertEqual(1, provider_state["consecutive_transient_errors"])
+        poll_email.record_provider_error(provider_state, self.serverbug_error())
+        self.assertEqual(2, provider_state["consecutive_transient_errors"])
+
+    def test_record_provider_error_resets_streak_on_non_transient_error(self):
+        provider_state = {"consecutive_transient_errors": 2}
+        poll_email.record_provider_error(provider_state, self.auth_error())
+        self.assertNotIn("consecutive_transient_errors", provider_state)
+
+    def test_clear_provider_error_resets_transient_streak(self):
+        provider_state = {"consecutive_transient_errors": 2, "last_error": {}}
+        poll_email.clear_provider_error(provider_state)
+        self.assertNotIn("consecutive_transient_errors", provider_state)
+
+    def test_suppresses_transient_error_below_default_threshold(self):
+        error = self.serverbug_error()
+        for streak in (1, 2):
+            self.assertTrue(
+                poll_email.suppress_transient_error_notification(
+                    {}, {"consecutive_transient_errors": streak}, error
+                )
+            )
+        self.assertFalse(
+            poll_email.suppress_transient_error_notification(
+                {}, {"consecutive_transient_errors": 3}, error
+            )
+        )
+
+    def test_threshold_is_configurable(self):
+        values = {"EMAIL_POLL_TRANSIENT_ERROR_ALERT_THRESHOLD": "1"}
+        self.assertFalse(
+            poll_email.suppress_transient_error_notification(
+                values, {"consecutive_transient_errors": 1}, self.serverbug_error()
+            )
+        )
+
+    def test_never_suppresses_non_transient_errors(self):
+        self.assertFalse(
+            poll_email.suppress_transient_error_notification(
+                {}, {"consecutive_transient_errors": 1}, self.auth_error()
+            )
+        )
+
+    def test_serverbug_cycles_alert_only_after_three_consecutive_failures(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_file = Path(tmpdir) / ".env"
+            state_file = Path(tmpdir) / "state.json"
+            poll_log_file = Path(tmpdir) / "poll.log"
+            env_file.write_text(
+                "\n".join(
+                    [
+                        "SLACK_BOT_TOKEN=slack-test-token",
+                        "SLACK_CHANNEL_ID=C123",
+                        f"EMAIL_POLL_STATE_FILE={state_file}",
+                        f"EMAIL_POLL_LOG_FILE={poll_log_file}",
+                    ]
+                )
+                + "\n"
+            )
+            posted = []
+
+            def fake_post(token, channel, text, telemetry=None):
+                posted.append(text)
+                return {"ok": True}
+
+            original = dict(poll_email.PROVIDERS)
+            poll_email.PROVIDERS["serverbug"] = ServerbugPoller()
+            try:
+                for cycle in range(3):
+                    with mock.patch.object(
+                        sys,
+                        "argv",
+                        [
+                            "poll-email.py",
+                            "--env-file",
+                            str(env_file),
+                            "--provider",
+                            "serverbug",
+                        ],
+                    ), mock.patch.object(
+                        poll_email, "post_slack_message", fake_post
+                    ), contextlib.redirect_stdout(io.StringIO()):
+                        poll_email.main()
+                    if cycle < 2:
+                        self.assertEqual([], posted)
+            finally:
+                poll_email.PROVIDERS.clear()
+                poll_email.PROVIDERS.update(original)
+
+            self.assertEqual(1, len(posted))
+            self.assertIn(
+                "Priority Email provider request failed: serverbug", posted[0]
+            )
+            state = json.loads(state_file.read_text())
+            self.assertEqual(
+                3,
+                state["providers"]["serverbug"]["consecutive_transient_errors"],
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

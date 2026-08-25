@@ -641,15 +641,33 @@ def notify_provider_error(values, provider_name, error, telemetry=None):
     return True
 
 
+def transient_provider_error(error):
+    return error.reason == "serverbug"
+
+
+def suppress_transient_error_notification(values, provider_state, error):
+    if not transient_provider_error(error):
+        return False
+    threshold = int_config(values, "EMAIL_POLL_TRANSIENT_ERROR_ALERT_THRESHOLD", 3)
+    return provider_state.get("consecutive_transient_errors", 0) < threshold
+
+
 def record_provider_error(provider_state, error):
     provider_state["last_polled_at"] = utc_now_iso()
     provider_state["last_error"] = error.summary()
     provider_state["last_error_at"] = provider_state["last_polled_at"]
+    if transient_provider_error(error):
+        provider_state["consecutive_transient_errors"] = (
+            provider_state.get("consecutive_transient_errors", 0) + 1
+        )
+    else:
+        provider_state.pop("consecutive_transient_errors", None)
 
 
 def clear_provider_error(provider_state):
     provider_state.pop("last_error", None)
     provider_state.pop("last_error_at", None)
+    provider_state.pop("consecutive_transient_errors", None)
 
 
 def load_state(path):
@@ -1198,7 +1216,22 @@ def main():
             result = poller.poll(values, current, telemetry=telemetry)
         except EmailProviderRequestError as exc:
             record_provider_error(current, exc)
-            posted = notify_provider_error(values, provider_name, exc, telemetry=telemetry)
+            suppressed = suppress_transient_error_notification(values, current, exc)
+            posted = False
+            if suppressed:
+                telemetry.log(
+                    "info",
+                    "slack_error_notification_skipped",
+                    provider=provider_name,
+                    reason="transient_error_below_alert_threshold",
+                    consecutive_transient_errors=current.get(
+                        "consecutive_transient_errors", 0
+                    ),
+                )
+            else:
+                posted = notify_provider_error(
+                    values, provider_name, exc, telemetry=telemetry
+                )
             telemetry.count(
                 "priority_email_provider_request_errors_total",
                 provider=provider_name,
@@ -1208,7 +1241,9 @@ def main():
             telemetry.count(
                 "priority_email_slack_error_notifications_total",
                 provider=provider_name,
-                result="posted" if posted else "skipped",
+                result="posted"
+                if posted
+                else ("suppressed" if suppressed else "skipped"),
             )
             duration_ms = (
                 dt.datetime.now(dt.UTC) - started
